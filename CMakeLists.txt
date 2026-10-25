@@ -20,3 +20,4 @@ add_library(doctest INTERFACE)
 target_include_directories(doctest SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 
 add_subdirectory(modules/common)
+add_subdirectory(modules/storage)
