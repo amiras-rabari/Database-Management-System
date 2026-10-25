@@ -1,0 +1,15 @@
+======================================================================
+[7.1 Tokenizer] 3. >= operator
+======================================================================
+Query: select[Age>=30](R)
+
+[OK] Parsed successfully.
+
+AST Tree:
+QueryNode
+|____ SelectNode
+      |---- ComparisonNode (>=)
+      |     |---- AttributeOperand
+      |     |     |____ AttributeReference: Age
+      |     |____ LiteralOperand (Integer): 30
+      |____ RelationReference: R

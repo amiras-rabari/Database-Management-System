@@ -1,0 +1,14 @@
+======================================================================
+[7.2 Grammar] 10. A union B minus C
+======================================================================
+Query: A union B minus C
+
+[OK] Parsed successfully.
+
+AST Tree:
+QueryNode
+|____ BinaryExpression (MINUS)
+      |---- BinaryExpression (UNION)
+      |     |---- RelationReference: A
+      |     |____ RelationReference: B
+      |____ RelationReference: C

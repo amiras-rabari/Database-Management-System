@@ -1,0 +1,10 @@
+======================================================================
+[7.3 Semantics] 21. Union incompatible schemas (Schema Error)
+======================================================================
+Input:
+R (a, b) = { 1, 2 } 
+ S (c, d, e) = { 1, 2, 3 }
+R union S
+[OK] Semantic relation validation passed.
+[OK] Caught expected error:
+[Semantic Schema Error] Relation schemas are not union-compatible for 'union': attribute counts differ.

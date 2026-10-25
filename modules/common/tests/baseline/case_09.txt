@@ -1,0 +1,8 @@
+======================================================================
+[7.1 Tokenizer] 9. Unclosed string (Lexical Error)
+======================================================================
+Query: select[Name='Bob](R)
+
+[OK] Caught expected error:
+Error Output By Prgram:
+Lexical Error at Line 1, Col 13: Unterminated string (reached end of file).

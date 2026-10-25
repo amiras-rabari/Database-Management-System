@@ -1,0 +1,8 @@
+======================================================================
+[7.2 Grammar] 17. Empty attribute list (Syntax Error)
+======================================================================
+Query: project[](R)
+
+[OK] Caught expected error:
+Error Output By Prgram:
+[Parse Error] Line 1, Col 9: An empty attribute list is not a valid projection. (Got char ']')

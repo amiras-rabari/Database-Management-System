@@ -1,0 +1,17 @@
+======================================================================
+[7.3 Semantics] 18. Compare two columns
+======================================================================
+Input:
+R (a, b) = { 1, 2 
+ 3, 3 }
+select[a=b](R)
+[OK] Semantic relation validation passed.
+[OK] Semantic query validation passed.
+
+Result Table:
+------------------------
+R (R.a, R.b) =
+3 3 
+
+
+Output Tuples: 1

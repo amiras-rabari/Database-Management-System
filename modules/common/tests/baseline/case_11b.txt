@@ -1,0 +1,17 @@
+======================================================================
+[7.3 Semantics] 11 Data Proof. (A-B)-C
+======================================================================
+Input:
+A (k) = { 1 } 
+ B (k) = { 1 } 
+ C (k) = { 1 }
+A minus B minus C
+[OK] Semantic relation validation passed.
+[OK] Semantic query validation passed.
+
+Result Table:
+------------------------
+A (A.k) =
+
+
+Output Tuples: 0

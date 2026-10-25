@@ -1,0 +1,20 @@
+======================================================================
+[7.3 Semantics] 22. Type error (comparing Number to String)
+======================================================================
+Input:
+
+Emp (EID, Name, Age, DID, MgrID) = {
+  E1, Alice, 30, D1, E3
+  E2, Bob, 25, D2, E3
+  E3, Carol, 45, D1, E5
+  E2, Bob, 25, D2, E3
+}
+Dept (DID, DName, Budget) = {
+  D1, Sales, 100
+  D2, Eng, 2000
+}
+
+select[Age>'30'](Emp)
+[OK] Semantic relation validation passed.
+[OK] Caught expected error:
+[Semantic Type Error] Incompatible comparison operand types: number and string.

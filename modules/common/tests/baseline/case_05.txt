@@ -1,0 +1,15 @@
+======================================================================
+[7.1 Tokenizer] 5. Parenthesis inside string
+======================================================================
+Query: select[Name='Bob)'](R)
+
+[OK] Parsed successfully.
+
+AST Tree:
+QueryNode
+|____ SelectNode
+      |---- ComparisonNode (=)
+      |     |---- AttributeOperand
+      |     |     |____ AttributeReference: Name
+      |     |____ LiteralOperand (QuotedString): Bob)
+      |____ RelationReference: R

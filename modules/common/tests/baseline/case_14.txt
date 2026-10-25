@@ -1,0 +1,22 @@
+======================================================================
+[7.2 Grammar] 14. Deep nesting
+======================================================================
+Query: project[Name](select[Age>30](select[DID='D1'](Employees)))
+
+[OK] Parsed successfully.
+
+AST Tree:
+QueryNode
+|____ ProjectNode
+      |---- AttributeReference: Name
+      |____ SelectNode
+            |---- ComparisonNode (>)
+            |     |---- AttributeOperand
+            |     |     |____ AttributeReference: Age
+            |     |____ LiteralOperand (Integer): 30
+            |____ SelectNode
+                  |---- ComparisonNode (=)
+                  |     |---- AttributeOperand
+                  |     |     |____ AttributeReference: DID
+                  |     |____ LiteralOperand (QuotedString): D1
+                  |____ RelationReference: Employees

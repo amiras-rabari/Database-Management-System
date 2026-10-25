@@ -1,0 +1,26 @@
+======================================================================
+[7.2 Grammar] 12. Logical precedence (not, and, or)
+======================================================================
+Query: select[not (a=1 and b=2) or c>3](R)
+
+[OK] Parsed successfully.
+
+AST Tree:
+QueryNode
+|____ SelectNode
+      |---- LogicalCondition (OR)
+      |     |---- NotConditionNode
+      |     |     |____ LogicalCondition (AND)
+      |     |           |---- ComparisonNode (=)
+      |     |           |     |---- AttributeOperand
+      |     |           |     |     |____ AttributeReference: a
+      |     |           |     |____ LiteralOperand (Integer): 1
+      |     |           |____ ComparisonNode (=)
+      |     |                 |---- AttributeOperand
+      |     |                 |     |____ AttributeReference: b
+      |     |                 |____ LiteralOperand (Integer): 2
+      |     |____ ComparisonNode (>)
+      |           |---- AttributeOperand
+      |           |     |____ AttributeReference: c
+      |           |____ LiteralOperand (Integer): 3
+      |____ RelationReference: R

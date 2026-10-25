@@ -1,0 +1,16 @@
+======================================================================
+[7.2 Grammar] 15. Explicit parentheses
+======================================================================
+Query: (A union B) minus (C intersect D)
+
+[OK] Parsed successfully.
+
+AST Tree:
+QueryNode
+|____ BinaryExpression (MINUS)
+      |---- BinaryExpression (UNION)
+      |     |---- RelationReference: A
+      |     |____ RelationReference: B
+      |____ BinaryExpression (INTERSECT)
+            |---- RelationReference: C
+            |____ RelationReference: D

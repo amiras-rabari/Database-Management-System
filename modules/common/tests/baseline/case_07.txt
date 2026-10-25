@@ -1,0 +1,15 @@
+======================================================================
+[7.1 Tokenizer] 7. Doubled quote inside string
+======================================================================
+Query: select[Name='O''Brien'](R)
+
+[OK] Parsed successfully.
+
+AST Tree:
+QueryNode
+|____ SelectNode
+      |---- ComparisonNode (=)
+      |     |---- AttributeOperand
+      |     |     |____ AttributeReference: Name
+      |     |____ LiteralOperand (QuotedString): O'Brien
+      |____ RelationReference: R

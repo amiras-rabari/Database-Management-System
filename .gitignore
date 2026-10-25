@@ -1,0 +1,14 @@
+# Build output (shell builds and CLion profiles)
+build/
+cmake-build-*/
+
+# CLion project settings: personal, regenerated from CMakeLists.txt
+.idea/
+
+# Compiler artefacts
+*.o
+*.obj
+*.exe
+
+# Obsidian editor settings (personal)
+.obsidian/

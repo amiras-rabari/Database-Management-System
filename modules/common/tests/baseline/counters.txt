@@ -1,0 +1,9 @@
+18: rows=1 joinComparisons=0 selectTuples=2
+19: rows=3 joinComparisons=6 selectTuples=0
+20: rows=2 joinComparisons=9 selectTuples=0
+21: error (not executed; no counters)
+22: error (not executed; no counters)
+23: rows=2 joinComparisons=0 selectTuples=0
+24: error (not executed; no counters)
+25: rows=0 joinComparisons=0 selectTuples=3
+11b: rows=0 joinComparisons=0 selectTuples=0

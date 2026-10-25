@@ -1,0 +1,15 @@
+======================================================================
+[7.1 Tokenizer] 1. No whitespace
+======================================================================
+Query: select[x1=3](R)
+
+[OK] Parsed successfully.
+
+AST Tree:
+QueryNode
+|____ SelectNode
+      |---- ComparisonNode (=)
+      |     |---- AttributeOperand
+      |     |     |____ AttributeReference: x1
+      |     |____ LiteralOperand (Integer): 3
+      |____ RelationReference: R

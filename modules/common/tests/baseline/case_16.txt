@@ -1,0 +1,8 @@
+======================================================================
+[7.2 Grammar] 16. Missing parenthesis (Syntax Error)
+======================================================================
+Query: select[Age>30](R
+
+[OK] Caught expected error:
+Error Output By Prgram:
+[Parse Error] Line 1, Col 17: Expected ')' after select expression check relationname must be inside (). (Got char 'EOF')

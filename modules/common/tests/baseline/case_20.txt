@@ -1,0 +1,28 @@
+======================================================================
+[7.3 Semantics] 20. Self Join with Rename
+======================================================================
+Input:
+
+Emp (EID, Name, Age, DID, MgrID) = {
+  E1, Alice, 30, D1, E3
+  E2, Bob, 25, D2, E3
+  E3, Carol, 45, D1, E5
+  E2, Bob, 25, D2, E3
+}
+Dept (DID, DName, Budget) = {
+  D1, Sales, 100
+  D2, Eng, 2000
+}
+
+rename[E2](Emp) join[Emp.MgrID=E2.EID] Emp
+[OK] Semantic relation validation passed.
+[OK] Semantic query validation passed.
+
+Result Table:
+------------------------
+E2_times_Emp (E2.EID, E2.Name, E2.Age, E2.DID, E2.MgrID, Emp.EID, Emp.Name, Emp.Age, Emp.DID, Emp.MgrID) =
+E3 Carol 45 D1 E5 E1 Alice 30 D1 E3 
+E3 Carol 45 D1 E5 E2 Bob 25 D2 E3 
+
+
+Output Tuples: 2

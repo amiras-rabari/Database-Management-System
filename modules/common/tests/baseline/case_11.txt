@@ -1,0 +1,14 @@
+======================================================================
+[7.2 Grammar] 11. A minus B minus C (Associativity)
+======================================================================
+Query: A minus B minus C
+
+[OK] Parsed successfully.
+
+AST Tree:
+QueryNode
+|____ BinaryExpression (MINUS)
+      |---- BinaryExpression (MINUS)
+      |     |---- RelationReference: A
+      |     |____ RelationReference: B
+      |____ RelationReference: C
