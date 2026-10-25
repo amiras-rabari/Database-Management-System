@@ -1,9 +1,11 @@
 #pragma once
 
 /// @file
-/// Little-endian integer helpers over raw byte views (SPEC §M1.2: "All
+/// Little-endian integer helpers over raw byte views (SPEC M1.2: "All
 /// multi-byte integers are little-endian"). Every page layout reads and writes
 /// its fields through these, never through pointer casts.
+/// The _t types with a number in the name (uint16_t, int32_t and so on) are the fixed-width types.
+/// We use them for everything that goes to disk, because the file has to look the same on Windows and Linux.
 
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +13,9 @@
 
 namespace db::storage
 {
+
+    /// A span does not allocate, copy, or free any data. It simply points to data managed by another container
+    /// It only works with structures where elements sit next to each other in memory
 
     /// Reads the unsigned 16-bit integer stored little-endian at `offset`.
     /// Throws std::logic_error if `offset + 2` is past the end of `bytes`.

@@ -51,6 +51,7 @@ namespace db::storage
         if (!fs::is_regular_file(path))
             throw std::runtime_error("File " + quoted(path) + " is not a regular file.");
 
+        // std::uintmax_t The largest unsigned integer type the compiler has.
         // No header in the file (§M1.2): the page count is the size / 4096.
         const std::uintmax_t size = fs::file_size(path);
         if (size % kPageSize != 0)
@@ -60,9 +61,13 @@ namespace db::storage
         if (pages > kInvalidPageId)
             throw std::runtime_error("File " + quoted(path) + " has more pages than a page id can address.");
 
+        // NOTE : std::fstream type means an open file that can be both read and written, It closes
+        // itself when it goes out of scope.It can't be copied, which is why DiskManager can only be moved
+
         std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary);
         if (!file.is_open())
             throw std::runtime_error("Cannot open file " + quoted(path) + ".");
+        // must move the file and hand ownership as again it can not be copied
         return DiskManager(path, std::move(file), static_cast<PageId>(pages));
     }
 
@@ -71,7 +76,7 @@ namespace db::storage
         if (fs::exists(path))
             throw Error(ErrorCategory::Name, "File " + quoted(path) + " already exists.");
         // trunc is what makes an in|out stream create the file; it is
-        // harmless here because the file did not exist a moment ago.
+        // harmless here because the file did not exist a moment ago so nothing to loose in terms of data.
         std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
         if (!file.is_open())
             throw std::runtime_error("Cannot create file " + quoted(path) + ".");
@@ -98,6 +103,10 @@ namespace db::storage
         file_.seekg(byteOffset(pageId));
         // char may alias any object, so viewing the std::byte buffer as char
         // for the stream is allowed (the reverse cast would not be).
+        // reinterpret_cast<char*>(p) "Look at the same memory as a different type"
+
+        // int can be used here as well for streamsize but explicitly casting gives much mor readability
+        // and type safety for as it intel this is IO related type telling how many bytes to read from file
         file_.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(kPageSize));
         if (!file_ || file_.gcount() != static_cast<std::streamsize>(kPageSize))
         {
@@ -115,10 +124,22 @@ namespace db::storage
             throw std::logic_error("writePage: page " + std::to_string(pageId) + " was never allocated in file "
                                    + quoted(path_) + " (" + std::to_string(numPages_) + " pages)");
 
+        // seekp(): Stands for "seek put". It moves the file's internal write pointer (the "cursor")
+        // to a specific position.
         file_.seekp(byteOffset(pageId));
+
+        // bytes.data() grabs the raw memory pointer to the underlying buffer
+        // and reinterpret_cast<const char*> says treat this raw binary memory buffer as a stream of
+        // generic characters so we can write bytes safely
         file_.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(kPageSize));
+
         // Flushed at once, so the file on disk always matches the counted calls.
+        // flush ensures that Stop waiting and force all buffered data out of memory and
+        // write it onto the physical disk right now
         file_.flush();
+
+        //In C++, checking a file stream like an if statement (if (!file_)) checks the stream's error flags.
+        //If the stream is in a "bad state"—meaning the write or the flush failed then it becomes true
         if (!file_)
         {
             file_.clear();

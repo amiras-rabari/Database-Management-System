@@ -2,11 +2,15 @@
 set(DB_STORAGE_SOURCES
     disk/bytes.cpp
     disk/disk_manager.cpp
+    page/record_codec.cpp
+    page/slotted_page.cpp
 )
 set(DB_STORAGE_HEADERS
     include/db/storage/page.h
     include/db/storage/bytes.h
     include/db/storage/disk_manager.h
+    include/db/storage/record_codec.h
+    include/db/storage/slotted_page.h
 )
 add_library(db_storage STATIC ${DB_STORAGE_SOURCES})
 target_include_directories(db_storage PUBLIC include)
@@ -28,6 +32,8 @@ add_executable(storage_tests
     tests/test_main.cpp
     tests/bytes_tests.cpp
     tests/disk_manager_tests.cpp
+    tests/record_codec_tests.cpp
+    tests/slotted_page_tests.cpp
 )
 target_link_libraries(storage_tests PRIVATE db_storage doctest)
 
