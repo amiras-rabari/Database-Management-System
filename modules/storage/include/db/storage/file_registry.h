@@ -18,7 +18,6 @@
 
 namespace db::storage
 {
-
     /// The number that names one open file. Handed out by a counter in the
     /// order files are opened (0, 1, 2, ...) and never reused after a file is
     /// removed, so the same steps always give the same ids.
@@ -57,7 +56,11 @@ namespace db::storage
 
         /// The disk manager for file `id`. Throws std::logic_error if `id`
         /// is not registered.
+        /// Returns a mutable reference, allowing calling code to modify the underlying DiskManager
         DiskManager& disk(FileId id);
+
+        ///Const Overload: Executed when called on a const FileRegistry object. Marked const at the
+        ///end (meaning it won't modify FileRegistry state) and returns a read-only (const) reference.
         const DiskManager& disk(FileId id) const;
 
         /// Closes file `id` and deletes it from the folder (used for
@@ -74,8 +77,7 @@ namespace db::storage
         /// path -> FileId of every open file, to spot "this path is already
         /// open". The keys are full, tidied-up paths (see pathKey).
         std::map<std::filesystem::path, FileId> idsByPath_;
-        /// The id the next open or create will hand out.
+        /// The id the next open or create will hand out. same as std::uint32_t nextId = 0;
         FileId nextId_ = 0;
     };
-
 } // namespace db::storage

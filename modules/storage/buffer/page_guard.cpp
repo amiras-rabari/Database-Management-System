@@ -6,7 +6,6 @@
 
 namespace db::storage
 {
-
     PageGuard PageGuard::fetch(BufferPool& pool, FileId fileId, PageId pageId)
     {
         // fetchPage pins the page. If it throws, we never get to make the
@@ -30,6 +29,7 @@ namespace db::storage
 
     // std::exchange(x, v) returns x's old value and sets x to v in one step.
     // Here it copies each field from `other` and empties `other` at once.
+    //PageGuard&& (two &) means “a guard someone is giving away”. It’s what std::move produces.
     PageGuard::PageGuard(PageGuard&& other) noexcept
         : pool_(std::exchange(other.pool_, nullptr)),
           fileId_(other.fileId_),
@@ -41,6 +41,9 @@ namespace db::storage
         // The one pin is given back exactly once, by this guard.
     }
 
+    //PageGuard::operator= is the single =, assignment. It doesn’t compare anything.
+    //It changes the guard on the left
+    //so it takes over the other guard’s page
     PageGuard& PageGuard::operator=(PageGuard&& other) noexcept
     {
         if (this != &other)
@@ -116,5 +119,4 @@ namespace db::storage
     {
         return pool_ != nullptr;
     }
-
 } // namespace db::storage

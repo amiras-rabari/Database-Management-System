@@ -50,6 +50,7 @@ namespace db::storage
             ++pinnedFrames_;
             peakPinned_ = std::max(peakPinned_, pinnedFrames_);
         }
+        //increment the pin count stored at index frame by 1
         ++pinCounts_[frame];
     }
 
@@ -177,6 +178,7 @@ namespace db::storage
     void BufferPool::flushPage(FileId fileId, PageId pageId)
     {
         // Clean or not in memory: nothing to save, and that is not an error.
+        // same as defining the frame = findFrame(fileId, pageId) and then comparing in fi stm
         if (const auto frame = findFrame(fileId, pageId); frame && frames_[*frame].dirty)
             writeBack(*frame);
     }
@@ -243,5 +245,4 @@ namespace db::storage
     {
         peakPinned_ = pinnedFrames_;
     }
-
 } // namespace db::storage

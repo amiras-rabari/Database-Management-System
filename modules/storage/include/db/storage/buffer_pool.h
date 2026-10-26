@@ -27,7 +27,6 @@
 
 namespace db::storage
 {
-
     /// Declared here, defined in the private buffer/replacer.h. The pool
     /// only stores a pointer to it, so other modules never see the LRU and
     /// CLOCK classes.
@@ -57,7 +56,7 @@ namespace db::storage
     /// The pool cannot be copied or moved, because other objects hold
     /// references and spans into it. Create it where it lives, or keep it in
     /// a unique_ptr (the storage engine does, chunk 12).
-    /// The destructor does not save changed pages: call flushAll first.
+    /// The destructor does not save changed pages: must call flushAll first.
     class BufferPool
     {
     public:
@@ -182,5 +181,4 @@ namespace db::storage
         /// The highest pinnedFrames_ since construction or resetPeak().
         std::size_t peakPinned_ = 0;
     };
-
 } // namespace db::storage
