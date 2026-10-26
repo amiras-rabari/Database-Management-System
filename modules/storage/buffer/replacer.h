@@ -1,16 +1,19 @@
 #pragma once
 
-// Victim selection for the buffer pool (§M1.6 LRU and CLOCK). Private to the
-// storage module: included as "buffer/replacer.h" by the pool and the tests,
-// never by other modules.
+// Replacement policies for the buffer pool: LRU and CLOCK (§M1.6).
 //
-// A replacer decides only WHICH FRAME to reuse. It knows nothing about pages,
-// files or disks; the pool tells it what happened to each frame.
+// When the pool is full and needs room for a new page, a replacer answers
+// one question: "which frame should I empty?" It never sees pages, files or
+// the disk. The pool simply tells it what happened to each frame (used again,
+// loaded, emptied) and asks it for a victim when needed.
 //
-// Free frames are not the replacer's job: while the pool still has
-// never-used frames it fills them in index order (0, 1, 2, ...) and calls
-// recordLoad. It calls chooseVictim only when no free frame is left, so the
-// first B misses on an empty pool are not evictions.
+// Free frames are handled by the pool, not here. While the pool still has
+// frames that were never used, it fills them in order (0, 1, 2, ...) and
+// only calls recordLoad. It asks chooseVictim only when every frame holds a
+// page. That is why the first B misses on an empty pool are not evictions.
+//
+// This header is private to the storage module ("buffer/replacer.h"). Other
+// modules choose a policy only through ReplacementPolicy.
 
 #include <cstddef>
 #include <cstdint>
@@ -23,55 +26,61 @@
 
 namespace db::storage
 {
-    /// Index of a frame in the buffer pool, 0 .. B-1. Memory only, never
-    /// stored on disk, so size_t.
+    /// The number of a frame in the buffer pool: 0, 1, ..., B-1.
+    /// It only lives in memory (never written to disk), so size_t is fine.
     using FrameId = std::size_t;
 
-    /// The interface the pool calls, whichever policy was chosen. Every
-    /// fetch, hit or miss, updates the policy (§M1.6 for both policies).
-    /// A frame number >= the frame count is a caller bug: std::logic_error.
+    /// What every replacement policy must offer. The pool calls these four
+    /// functions without knowing whether LRU or CLOCK is behind them.
+    /// Both policies update on every fetch, hit or miss (§M1.6).
+    /// Passing a frame number that does not exist (>= B) is a bug in the
+    /// caller and throws std::logic_error.
     class Replacer
     {
     public:
-        /// Virtual so that deleting an LruReplacer or ClockReplacer through a
-        /// Replacer pointer (the pool's unique_ptr) runs the right destructor.
+        /// Virtual, so that when the pool deletes its replacer through a
+        /// Replacer pointer, the LRU or CLOCK destructor really runs.
+        /// Without it, that delete would be undefined behaviour.
         virtual ~Replacer() = default;
 
-        /// A fetch found its page already resident in `frame` (a HIT).
+        /// The page the pool was asked for was already in `frame` (a hit).
         virtual void recordHit(FrameId frame) = 0;
 
-        /// A page was just loaded (or created) in `frame` (a MISS), either
-        /// into a free frame or into the frame chooseVictim returned.
+        /// A page was just put into `frame` (a miss, or a brand-new page).
+        /// The frame was either a free one or the one chooseVictim picked.
         virtual void recordLoad(FrameId frame) = 0;
 
-        /// The frame to reuse, chosen among frames whose pin count is 0, or
-        /// an empty optional if every frame is pinned. `pinCounts[i]` is
-        /// frame i's pin count; read-only, the pool owns pin state. Its size
-        /// must equal the frame count (else std::logic_error).
+        /// Picks the frame to empty. Only frames with pin count 0 (nobody
+        /// is using them) may be picked. Returns nothing if every frame is
+        /// pinned. `pinCounts[i]` is frame i's pin count. The replacer may
+        /// read the list but not change it: the pool owns the pin counts.
+        /// The list must have one entry per frame, else std::logic_error.
         virtual std::optional<FrameId> chooseVictim(std::span<const std::uint32_t> pinCounts) = 0;
 
-        /// `frame` became empty (its page was discarded, e.g. a temp file
-        /// was dropped). The pool must also put the frame back on its free
-        /// list: chooseVictim runs only when no free frame exists, so it
-        /// never sees an empty frame (reusing one is not an eviction).
-        /// LRU never picks a forgotten frame; CLOCK sets its ref bit to 0
-        /// decided as per the spec pseudocode unchanged.
+        /// `frame` is now empty: its page was thrown away (for example, a
+        /// temporary file was deleted). The pool also puts the frame back
+        /// on its free list, so chooseVictim is never asked about an empty
+        /// frame, and reusing it does not count as an eviction.
+        /// LRU will never pick a forgotten frame. CLOCK just sets its
+        /// reference bit to 0, exactly as the spec's pseudocode allows.
         virtual void forget(FrameId frame) = 0;
     };
 
-    /// LRU (§M1.6): "Every fetch, hit or miss, moves that frame to most
-    /// recently used. Victim = least recently used frame whose pin count is
-    /// zero."
+    /// LRU, "least recently used" (§M1.6): "Every fetch, hit or miss, moves
+    /// that frame to most recently used. Victim = least recently used frame
+    /// whose pin count is zero."
     ///
-    /// Design: logical timestamps. A counter goes up by one on every
-    /// recordHit/recordLoad and the frame stores the new value. The victim is
-    /// the unpinned frame with the smallest stamp. Stamps start at 1, so 0
-    /// means "holds no page" (never loaded, or forgotten) and is never chosen.
-    /// O(B) per victim; deterministic (no clock time, no addresses).
+    /// How we track "recently": a counter that goes up by one every time any
+    /// frame is used, like a ticket machine. The used frame keeps the new
+    /// ticket number (its "stamp"). The smallest stamp was used longest ago,
+    /// so it is the victim. Stamps start at 1; stamp 0 means "this frame
+    /// holds no page" and is never picked.
+    /// Picking a victim looks at every frame once (fine for B up to 256).
+    /// No clock time is used, so every run gives the same answers.
     class LruReplacer : public Replacer
     {
     public:
-        /// A replacer for `frames` frames (must be > 0, else std::logic_error).
+        /// An LRU replacer for `frames` frames. 0 frames throws std::logic_error.
         explicit LruReplacer(std::size_t frames);
 
         void recordHit(FrameId frame) override;
@@ -80,23 +89,25 @@ namespace db::storage
         void forget(FrameId frame) override;
 
     private:
-        /// lastUse_[f]: stamp of frame f's last access; 0 = holds no page.
+        /// lastUse_[f] is frame f's stamp: when it was last used. 0 = empty frame.
         std::vector<std::uint64_t> lastUse_;
-        /// The last stamp handed out. Strictly increasing, so no two frames
-        /// ever share a stamp and there are no ties to break.
+        /// The last stamp handed out. It only goes up, so two frames never
+        /// have the same stamp and there is never a tie to break.
         std::uint64_t counter_ = 0;
     };
 
-    /// CLOCK (§M1.6): frames in a circle, a reference bit each, and a hand.
+    /// CLOCK (§M1.6): a cheaper version of LRU. Think of the frames placed
+    /// in a circle like a clock face, with a hand pointing at one of them.
+    /// Each frame has one "reference bit": 1 = used recently, 0 = not.
     /// "Every fetch, hit or miss, sets that frame's reference bit to 1. A
     /// newly loaded page gets ref bit 1 and the hand advances past it."
-    /// chooseVictim follows the spec pseudocode exactly, including the
-    /// "swept > 2 * B" stop that ends the search when every frame is pinned.
+    /// chooseVictim follows the spec's pseudocode line by line, including
+    /// the "swept > 2 * B" rule that stops the search when every frame is pinned.
     class ClockReplacer : public Replacer
     {
     public:
-        /// A replacer for `frames` frames (must be > 0, else std::logic_error).
-        /// All reference bits start at 0, the hand at frame 0.
+        /// A CLOCK replacer for `frames` frames. 0 frames throws std::logic_error.
+        /// All reference bits start at 0 and the hand starts at frame 0.
         explicit ClockReplacer(std::size_t frames);
 
         void recordHit(FrameId frame) override;
@@ -105,15 +116,16 @@ namespace db::storage
         void forget(FrameId frame) override;
 
     private:
-        /// ref_[f]: frame f's reference bit, 0 or 1. uint8_t rather than
-        /// bool: std::vector<bool> is a packed special case with surprising
-        /// behaviour.
+        /// ref_[f] is frame f's reference bit, 0 or 1. Stored as uint8_t, not
+        /// bool, because std::vector<bool> is a special packed type that
+        /// behaves differently from a normal vector.
         std::vector<std::uint8_t> ref_;
-        /// The frame the next sweep looks at first; always < ref_.size().
+        /// The frame the hand points at: where the next search starts.
+        /// Always between 0 and B-1.
         FrameId hand_ = 0;
     };
 
-    /// The replacer for `policy` with `frames` frames. The pool owns it
-    /// through the returned unique_ptr (freed automatically, exactly once).
+    /// Builds the replacer for `policy` with `frames` frames. The pool keeps
+    /// it in the returned unique_ptr, which deletes it automatically, once.
     std::unique_ptr<Replacer> makeReplacer(ReplacementPolicy policy, std::size_t frames);
 } // namespace db::storage

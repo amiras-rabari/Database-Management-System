@@ -2,12 +2,16 @@
 set(DB_STORAGE_SOURCES
     disk/bytes.cpp
     disk/disk_manager.cpp
+    disk/file_registry.cpp
     page/record_codec.cpp
     page/slotted_page.cpp
     buffer/replacement_policy.cpp
     buffer/replacer.cpp
     buffer/lru_replacer.cpp
     buffer/clock_replacer.cpp
+    buffer/buffer_pool.cpp
+    buffer/page_guard.cpp
+    heap/directory_page.cpp
 )
 set(DB_STORAGE_HEADERS
     include/db/storage/page.h
@@ -16,6 +20,11 @@ set(DB_STORAGE_HEADERS
     include/db/storage/record_codec.h
     include/db/storage/slotted_page.h
     include/db/storage/replacement_policy.h
+    include/db/storage/io_stats.h
+    include/db/storage/file_registry.h
+    include/db/storage/buffer_pool.h
+    include/db/storage/page_guard.h
+    include/db/storage/directory_page.h
 )
 add_library(db_storage STATIC ${DB_STORAGE_SOURCES})
 target_include_directories(db_storage PUBLIC include)
@@ -43,6 +52,9 @@ add_executable(storage_tests
     tests/record_codec_tests.cpp
     tests/slotted_page_tests.cpp
     tests/replacer_tests.cpp
+    tests/buffer_pool_tests.cpp
+    tests/page_guard_tests.cpp
+    tests/directory_page_tests.cpp
 )
 target_link_libraries(storage_tests PRIVATE db_storage doctest)
 # The module's own tests may use its private headers.

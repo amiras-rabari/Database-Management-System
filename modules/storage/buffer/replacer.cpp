@@ -7,9 +7,12 @@ namespace db::storage
 
     std::unique_ptr<Replacer> makeReplacer(ReplacementPolicy policy, std::size_t frames)
     {
-        // The constructors check frames > 0. Each branch converts the
-        // derived unique_ptr to unique_ptr<Replacer>; the virtual destructor
-        // makes deleting it through the base pointer safe.
+        // Build the policy that was asked for. Each branch makes an
+        // LruReplacer or ClockReplacer, and the returned pointer is
+        // converted to a unique_ptr<Replacer> automatically.
+        // The constructors check that frames > 0.
+        // There is no `default:` on purpose: if a new policy is added to the
+        // enum, the compiler warns that this switch does not handle it.
         switch (policy)
         {
         case ReplacementPolicy::Lru:
@@ -17,7 +20,8 @@ namespace db::storage
         case ReplacementPolicy::Clock:
             return std::make_unique<ClockReplacer>(frames);
         }
-        // Reached only through a cast of an out-of-range integer (caller bug, D1).
+        // Only reachable if someone cast a bad number into the enum,
+        // e.g. static_cast<ReplacementPolicy>(7). That is a bug (D1).
         throw std::logic_error("makeReplacer: invalid ReplacementPolicy value");
     }
 
