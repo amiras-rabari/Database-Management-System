@@ -50,6 +50,8 @@ namespace db::storage
         std::uint16_t offset = 0;
         std::uint16_t length = 0;
 
+        /// overriding the equals method to compare 2 structs  entries offset and len and uses default strategy
+        /// which compares val of both fields here and return if both matches
         bool operator==(const SlotEntry&) const = default;
     };
 
@@ -95,12 +97,15 @@ namespace db::storage
         /// rule as slot().
         bool isLive(std::uint16_t slotNo) const;
 
-        /// Stores `record` and returns its new slot number, or an empty
-        /// optional (NO_SPACE) if free space < L + 4. Follows the §M1.4
-        /// pseudocode: free_end -= L, copy the record to free_end, append slot
-        /// (free_end, L). Always appends a new slot; dead slots are never
-        /// reused. No space is a normal result, not an error.
-        std::optional<std::uint16_t> insert(std::span<const std::byte> record);
+        /// Stores `recordBytes` and returns its new slot number, or an empty
+        /// optional (NO_SPACE) if free space < L + 4. `recordBytes` is one
+        /// record already encoded by encodeRecord (record_codec.h), so
+        /// L = recordBytes.size(); the page copies the bytes and never looks
+        /// at the fields. Follows the §M1.4 pseudocode: free_end -= L, copy
+        /// the record to free_end, append slot (free_end, L). Always appends a
+        /// new slot; dead slots are never reused. No space is a normal result,
+        /// not an error.
+        std::optional<std::uint16_t> insert(std::span<const std::byte> recordBytes);
 
         /// The bytes of the record in slot `slotNo`, as a view into the page.
         /// Valid only while the page bytes stay alive and unchanged: once a
