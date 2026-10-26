@@ -12,6 +12,8 @@ set(DB_STORAGE_SOURCES
     buffer/buffer_pool.cpp
     buffer/page_guard.cpp
     heap/directory_page.cpp
+    heap/heap_file.cpp
+    heap/heap_scan.cpp
 )
 set(DB_STORAGE_HEADERS
     include/db/storage/page.h
@@ -25,6 +27,9 @@ set(DB_STORAGE_HEADERS
     include/db/storage/buffer_pool.h
     include/db/storage/page_guard.h
     include/db/storage/directory_page.h
+    include/db/storage/rid.h
+    include/db/storage/heap_scan.h
+    include/db/storage/heap_file.h
 )
 add_library(db_storage STATIC ${DB_STORAGE_SOURCES})
 target_include_directories(db_storage PUBLIC include)
@@ -55,6 +60,8 @@ add_executable(storage_tests
     tests/buffer_pool_tests.cpp
     tests/page_guard_tests.cpp
     tests/directory_page_tests.cpp
+    tests/heap_file_tests.cpp
+    tests/heap_scan_tests.cpp
 )
 target_link_libraries(storage_tests PRIVATE db_storage doctest)
 # The module's own tests may use its private headers.

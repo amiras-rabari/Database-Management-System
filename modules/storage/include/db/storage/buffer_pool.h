@@ -113,6 +113,11 @@ namespace db::storage
         /// Counts nothing.
         bool isResident(FileId fileId, PageId pageId) const;
 
+        /// How many pages file `fileId` has right now (newPage adds one).
+        /// No disk access, counts nothing. The heap file uses it to check a
+        /// rid and to count its data pages. Unknown FileId -> std::logic_error.
+        PageId numPages(FileId fileId) const;
+
         /// A copy of the counters: a snapshot that later activity does not change.
         IoStats stats() const;
         /// The number of frames, B.

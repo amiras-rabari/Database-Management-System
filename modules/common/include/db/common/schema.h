@@ -34,6 +34,9 @@ namespace db
         friend bool operator==(const ColumnRef& left, const ColumnRef& right) = default;
     };
 
+    /// Largest n allowed in VARCHAR(n) (G1: "VARCHAR(n) with n <= 255").
+    inline constexpr int kMaxVarcharLength = 255;
+
     /// One column of a schema. Every column is stored qualified.
     struct Column
     {
@@ -58,7 +61,12 @@ namespace db
         /// An empty schema.
         Schema() = default;
         /// A schema with these columns in this order. Throws Error(Schema)
-        /// "Duplicate column 'Emp.DID'." if two columns share a qualified name.
+        /// - "Duplicate column 'Emp.DID'." if two columns share a qualified name;
+        /// - "Column 'R.b' is VARCHAR(300); n must be 1 to 255." if a VARCHAR
+        ///   length is outside 1..255;
+        /// - "Column 'R.a' is INT but has a VARCHAR length of 5." if an INT
+        ///   column's varcharLength is not 0.
+        /// So every Schema in the project has legal column types.
         explicit Schema(std::vector<Column> columns);
 
         /// All columns, in order.

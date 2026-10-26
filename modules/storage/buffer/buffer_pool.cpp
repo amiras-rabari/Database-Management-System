@@ -221,6 +221,11 @@ namespace db::storage
         return findFrame(fileId, pageId).has_value();
     }
 
+    PageId BufferPool::numPages(FileId fileId) const
+    {
+        return files_.disk(fileId).numPages();
+    }
+
     IoStats BufferPool::stats() const
     {
         return stats_;

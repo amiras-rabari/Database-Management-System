@@ -1,6 +1,7 @@
 #include "db/common/schema.h"
 
 #include <set>
+#include <string>
 #include <utility>
 
 #include "db/common/error.h"
@@ -24,6 +25,21 @@ namespace db
         std::set<std::string> seen;
         for (const Column& column : columns_)
         {
+            // The type rules (G1): VARCHAR(n) needs 1 <= n <= 255 (PostgreSQL
+            // rejects VARCHAR(0) too), and an INT has no length.
+            if (column.type == Type::Varchar
+                && (column.varcharLength < 1 || column.varcharLength > kMaxVarcharLength))
+            {
+                throw Error(ErrorCategory::Schema, "Column '" + column.qualifiedName() + "' is VARCHAR("
+                                                       + std::to_string(column.varcharLength) + "); n must be 1 to "
+                                                       + std::to_string(kMaxVarcharLength) + ".");
+            }
+            if (column.type == Type::Int && column.varcharLength != 0)
+            {
+                throw Error(ErrorCategory::Schema, "Column '" + column.qualifiedName()
+                                                       + "' is INT but has a VARCHAR length of "
+                                                       + std::to_string(column.varcharLength) + ".");
+            }
             /// seen.insert(x) returns a pair: .first points to the element, and
             /// .second is true if it was newly inserted and false if it was already there.
             /// So !...second means "seen before", which is a duplicate.

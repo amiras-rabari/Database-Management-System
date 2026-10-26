@@ -6,6 +6,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -301,6 +302,32 @@ TEST_CASE("Schema rejects two columns with the same qualified name")
         errorFrom([] { Schema({intColumn("R", "a"), varcharColumn("R", "a", 3)}); });
     REQUIRE(error.has_value());
     CHECK(error->category() == ErrorCategory::Schema);
+}
+
+TEST_CASE("Schema accepts VARCHAR(1) and VARCHAR(255), the limits of n (G1)")
+{
+    const Schema schema({varcharColumn("R", "a", 1), varcharColumn("R", "b", db::kMaxVarcharLength)});
+    CHECK(schema.column(0).varcharLength == 1);
+    CHECK(schema.column(1).varcharLength == 255);
+    CHECK(db::kMaxVarcharLength == 255);
+}
+
+TEST_CASE("Schema rejects VARCHAR(n) outside 1..255 and an INT with a length, naming the column")
+{
+    const std::vector<std::pair<Column, std::string>> cases = {
+        {varcharColumn("R", "b", 256), "Column 'R.b' is VARCHAR(256); n must be 1 to 255."},
+        {varcharColumn("R", "b", 0), "Column 'R.b' is VARCHAR(0); n must be 1 to 255."},
+        {varcharColumn("R", "b", -1), "Column 'R.b' is VARCHAR(-1); n must be 1 to 255."},
+        {Column{"R", "a", Type::Int, 5}, "Column 'R.a' is INT but has a VARCHAR length of 5."},
+    };
+    for (const auto& [column, message] : cases)
+    {
+        CAPTURE(message);
+        const std::optional<db::Error> error = errorFrom([&] { Schema({intColumn("R", "x"), column}); });
+        REQUIRE(error.has_value());
+        CHECK(error->category() == ErrorCategory::Schema);
+        CHECK(error->message() == message);
+    }
 }
 
 // --- concatSchemas / requalify ----------------------------------------------
