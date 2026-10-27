@@ -3,6 +3,7 @@ set(DB_STORAGE_SOURCES
     disk/bytes.cpp
     disk/disk_manager.cpp
     disk/file_registry.cpp
+    disk/temp_file.cpp
     page/record_codec.cpp
     page/slotted_page.cpp
     buffer/replacement_policy.cpp
@@ -30,6 +31,7 @@ set(DB_STORAGE_HEADERS
     include/db/storage/rid.h
     include/db/storage/heap_scan.h
     include/db/storage/heap_file.h
+    include/db/storage/temp_file.h
 )
 add_library(db_storage STATIC ${DB_STORAGE_SOURCES})
 target_include_directories(db_storage PUBLIC include)
@@ -62,6 +64,7 @@ add_executable(storage_tests
     tests/directory_page_tests.cpp
     tests/heap_file_tests.cpp
     tests/heap_scan_tests.cpp
+    tests/temp_file_tests.cpp
 )
 target_link_libraries(storage_tests PRIVATE db_storage doctest)
 # The module's own tests may use its private headers.
