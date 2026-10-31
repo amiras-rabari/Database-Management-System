@@ -59,6 +59,17 @@ namespace db::storage
         return static_cast<std::int32_t>(readU32(bytes, offset));
     }
 
+    // Same loop as readU32, over 8 bytes. Each byte is widened to uint64_t
+    // before the shift: shifting a 32-bit value by 32 or more is undefined.
+    std::uint64_t readU64(std::span<const std::byte> bytes, std::size_t offset)
+    {
+        checkRange(bytes.size(), offset, 8, "readU64");
+        std::uint64_t value = 0;
+        for (std::size_t i = 0; i < 8; ++i)
+            value |= std::to_integer<std::uint64_t>(bytes[offset + i]) << (8 * i);
+        return value;
+    }
+
     void writeU16(std::span<std::byte> bytes, std::size_t offset, std::uint16_t value)
     {
         checkRange(bytes.size(), offset, 2, "writeU16");
@@ -77,5 +88,12 @@ namespace db::storage
     {
         checkRange(bytes.size(), offset, 4, "writeI32");
         writeU32(bytes, offset, static_cast<std::uint32_t>(value));
+    }
+
+    void writeU64(std::span<std::byte> bytes, std::size_t offset, std::uint64_t value)
+    {
+        checkRange(bytes.size(), offset, 8, "writeU64");
+        for (std::size_t i = 0; i < 8; ++i)
+            bytes[offset + i] = static_cast<std::byte>((value >> (8 * i)) & 0xFF);
     }
 } // namespace db::storage

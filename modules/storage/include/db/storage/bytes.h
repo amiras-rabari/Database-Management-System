@@ -24,6 +24,9 @@ namespace db::storage
     std::uint32_t readU32(std::span<const std::byte> bytes, std::size_t offset);
     /// Reads the signed (two's complement) 32-bit integer at `offset`.
     std::int32_t readI32(std::span<const std::byte> bytes, std::size_t offset);
+    /// Reads the unsigned 64-bit integer stored little-endian at `offset`
+    /// (catalog counts and the raw bits of the stats width, chunk 11).
+    std::uint64_t readU64(std::span<const std::byte> bytes, std::size_t offset);
 
     /// Writes `value` little-endian at `offset` (low byte first).
     /// Throws std::logic_error if `offset + 2` is past the end of `bytes`.
@@ -32,5 +35,7 @@ namespace db::storage
     void writeU32(std::span<std::byte> bytes, std::size_t offset, std::uint32_t value);
     /// Writes `value` as 4 bytes of two's complement, little-endian.
     void writeI32(std::span<std::byte> bytes, std::size_t offset, std::int32_t value);
+    /// Writes `value` as 8 bytes, little-endian (low byte first).
+    void writeU64(std::span<std::byte> bytes, std::size_t offset, std::uint64_t value);
 
 } // namespace db::storage

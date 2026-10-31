@@ -12,9 +12,17 @@ set(DB_STORAGE_SOURCES
     buffer/clock_replacer.cpp
     buffer/buffer_pool.cpp
     buffer/page_guard.cpp
+    buffer/trace.cpp
+    page/page_layout.cpp
     heap/directory_page.cpp
     heap/heap_file.cpp
     heap/heap_scan.cpp
+    catalog/catalog_format.cpp
+    catalog/catalog.cpp
+    catalog/storage_engine.cpp
+    catalog/schema_spec.cpp
+    loader/csv.cpp
+    loader/csv_loader.cpp
 )
 set(DB_STORAGE_HEADERS
     include/db/storage/page.h
@@ -32,6 +40,14 @@ set(DB_STORAGE_HEADERS
     include/db/storage/heap_scan.h
     include/db/storage/heap_file.h
     include/db/storage/temp_file.h
+    include/db/storage/page_layout.h
+    include/db/storage/trace.h
+    include/db/storage/table_stats.h
+    include/db/storage/table_info.h
+    include/db/storage/catalog.h
+    include/db/storage/storage_engine.h
+    include/db/storage/schema_spec.h
+    include/db/storage/csv_loader.h
 )
 add_library(db_storage STATIC ${DB_STORAGE_SOURCES})
 target_include_directories(db_storage PUBLIC include)
@@ -65,6 +81,13 @@ add_executable(storage_tests
     tests/heap_file_tests.cpp
     tests/heap_scan_tests.cpp
     tests/temp_file_tests.cpp
+    tests/catalog_format_tests.cpp
+    tests/catalog_tests.cpp
+    tests/page_layout_tests.cpp
+    tests/trace_tests.cpp
+    tests/csv_tests.cpp
+    tests/csv_loader_tests.cpp
+    tests/schema_spec_tests.cpp
 )
 target_link_libraries(storage_tests PRIVATE db_storage doctest)
 # The module's own tests may use its private headers.
