@@ -1,0 +1,127 @@
+#pragma once
+
+// Sort-based duplicate removal (SPEC §M2.3, chunk 08): distinct in sort
+// mode, union, intersect and except. All have SET semantics: every output
+// tuple appears once (C20; the module doc wins over the handout's "bag and
+// set versions", so there is no bag intersect/except). Private to exec;
+// plans reach them through buildExecutablePlan.
+//
+// They work on inputs much larger than B: the only memory they use is the
+// sorter's frames, plus one remembered tuple or two run readers.
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <vector>
+
+#include "db/common/plan.h"
+#include "db/common/schema.h"
+#include "db/exec/exec_context.h"
+#include "db/exec/external_sort.h"
+#include "db/exec/frame_plan.h"
+#include "db/exec/operator.h"
+#include "db/storage/temp_file.h"
+#include "sort/run_file.h"
+
+namespace db::exec
+{
+    /// Sort keys for every column of `schema`, in order, ascending: after a
+    /// sort on them, equal tuples are next to each other.
+    std::vector<SortKey> allColumnsAscending(const Schema& schema);
+
+    /// Compares two tuples column by column, by position: negative if `a`
+    /// comes first, 0 if equal, positive if `b` comes first (the order of
+    /// allColumnsAscending). Adds 1 to `comparisons`. Both tuples must have
+    /// the same types position by position (checked when the plan is built).
+    int compareRows(const Tuple& a, const Tuple& b, std::uint64_t& comparisons);
+
+    /// distinct (sort mode, one child) and union (two children). Every input
+    /// tuple goes into ONE sorter, sorted on all columns; equal tuples then
+    /// come out next to each other, so next() only has to skip a tuple equal
+    /// to the one it returned last. For union both inputs go into the same
+    /// sorter (Q1 (a)), so a tuple on both sides is removed too.
+    ///
+    /// Cost: what the sort costs, plus one comparison per output check.
+    /// Frames (FrameShare, phase rule): pass 0 ownFrames, merges openFrames,
+    /// final merge streamFrames, as in SortOperator.
+    class DedupSortOperator : public Operator
+    {
+    public:
+        /// With two children (union): checks they are union-compatible now,
+        /// while the plan is built: same column count and the same type at
+        /// each position, else db::Error(Schema). Output schema = the first
+        /// child's (union takes the left input's names). No page is read.
+        DedupSortOperator(ExecContext& ctx, Children children, const FrameShare& share);
+
+    protected:
+        void doOpen() override;
+        bool doNext(Tuple& out) override;
+        void doClose() override;
+
+    private:
+        /// The schema the sorter stores tuples with. For union, the right
+        /// input may have a longer VARCHAR than the left (allowed), so each
+        /// VARCHAR length is the larger of the two; else run pages would
+        /// refuse a long right value.
+        Schema sortSchema_;
+        FrameShare share_;
+        /// Exists only between open and close; each open makes a new one.
+        std::optional<ExternalSorter> sorter_;
+        /// The tuple returned last, to skip its duplicates. One tuple, not a
+        /// container.
+        Tuple last_;
+        bool hasLast_ = false;
+    };
+
+    /// intersect and except. Each input is sorted on all columns into ONE
+    /// run on disk (ExternalSorter::finishToRun, Q2 (a)): first the left
+    /// input (then it is closed), then the right one. next() then walks the
+    /// two runs side by side with one reader each (2 frames):
+    /// - intersect: a value on both sides is returned once;
+    /// - except: a left value that is not on the right is returned once.
+    /// Cost: sort(M) + sort(N) + M + N reads of the two runs, like a
+    /// sort-merge join. Every head comparison counts 1, on top of the sorts'.
+    class SetMergeOperator : public Operator
+    {
+    public:
+        enum class Kind
+        {
+            Intersect,
+            Except
+        };
+
+        /// Checks the inputs are union-compatible now (db::Error(Schema)
+        /// otherwise). Output schema = the left input's. No page is read.
+        SetMergeOperator(ExecContext& ctx, std::unique_ptr<Operator> left, std::unique_ptr<Operator> right,
+                         Kind kind, const FrameShare& share);
+
+    protected:
+        void doOpen() override;
+        bool doNext(Tuple& out) override;
+        void doClose() override;
+
+    private:
+        /// Opens child `i`, sorts all of it into one run, closes it. When it
+        /// returns, nothing is pinned or reserved.
+        storage::TempFile sortInput(std::size_t i);
+        /// Moves the left (or right) reader past every tuple equal to `value`.
+        void skipLeft(const Tuple& value);
+        void skipRight(const Tuple& value);
+
+        Kind kind_;
+        FrameShare share_;
+        /// The two sorted runs. Declared before the readers on purpose:
+        /// members are destroyed in reverse order, so the readers unpin
+        /// their pages before the runs are deleted.
+        std::optional<storage::TempFile> leftRun_;
+        std::optional<storage::TempFile> rightRun_;
+        /// One reader per run, its current (head) tuple, and whether it still has one.
+        std::unique_ptr<RunReader> leftReader_;
+        std::unique_ptr<RunReader> rightReader_;
+        Tuple leftHead_;
+        Tuple rightHead_;
+        bool hasLeft_ = false;
+        bool hasRight_ = false;
+    };
+} // namespace db::exec

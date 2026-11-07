@@ -130,6 +130,28 @@ namespace db::exec
         ++stats_.passes;
     }
 
+    storage::TempFile ExternalSorter::finishToRun()
+    {
+        stats_.passes = 1; // pass 0
+        // No in-memory shortcut: the caller is about to give its frames to
+        // its other input, so the sorted data must be on disk.
+        if (buffer_.size() > 0)
+            writeBufferAsRun();
+        stats_.initialRuns = runs_.size();
+        if (runs_.empty())
+            return RunWriter(engine_, schema_).finish(); // empty input: an empty run, no I/O
+
+        // Merge passes until one run is left (the rewrite variant, as above).
+        while (runs_.size() > 1)
+        {
+            mergePass(mergeFrames_ - 1);
+            ++stats_.passes;
+        }
+        storage::TempFile run = std::move(runs_[0]);
+        runs_.clear();
+        return run;
+    }
+
     bool ExternalSorter::next(Tuple& out)
     {
         if (!inMemory_)

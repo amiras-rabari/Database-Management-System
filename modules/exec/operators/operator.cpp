@@ -80,6 +80,14 @@ namespace db::exec
         return children;
     }
 
+    Operator::Children twoChildren(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right)
+    {
+        Operator::Children children;
+        children.push_back(std::move(left));
+        children.push_back(std::move(right));
+        return children;
+    }
+
     ExecCounters subtreeCounters(const Operator& op)
     {
         ExecCounters sum = op.counters();

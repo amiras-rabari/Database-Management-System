@@ -7,6 +7,11 @@ add_library(db_exec STATIC
     plan/executable_plan.cpp
     sort/external_sort.cpp
     sort/run_file.cpp
+    join/hash_partitioner.cpp
+    join/hashing.cpp
+    join/tuple_hash_table.cpp
+    operators/hash_distinct.cpp
+    sort/set_ops.cpp
     sort/sort_operator.cpp
 )
 target_include_directories(db_exec PUBLIC include)
@@ -20,6 +25,8 @@ target_link_libraries(db_exec PUBLIC db_storage)
 add_executable(exec_tests
     tests/test_main.cpp
     tests/external_sort_tests.cpp
+    tests/set_ops_tests.cpp
+    tests/hash_distinct_tests.cpp
     tests/frame_plan_tests.cpp
     tests/operator_tests.cpp
     tests/pipelined_tests.cpp

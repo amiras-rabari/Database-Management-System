@@ -103,6 +103,18 @@ namespace db::exec
         /// but the last, and gets the final merge ready.
         void finishInput();
 
+        /// Instead of finishInput (never both): the input has ended; sort
+        /// everything into ONE run on disk and hand it over (materialize
+        /// mode, chunk 08 Q2 (a); intersect, except, and later sort-merge
+        /// join). The last run is always written, even a small one, and
+        /// merge passes go on until one run is left. When it returns, the
+        /// sorter holds no frame and no reader is open on the run, so the
+        /// caller can sort its other input with all the frames. next() must
+        /// not be called afterwards. An empty input gives an empty run
+        /// (0 pages). Example: 8 pages, runFrames 3, mergeFrames 4: runs 3,
+        /// 3, 2 (8 writes), one merge of fan-in 3 (8 reads, 8 writes): 2 passes.
+        storage::TempFile finishToRun();
+
         /// Fills `out` with the next tuple in sorted order and returns true,
         /// or returns false at the end.
         bool next(Tuple& out);

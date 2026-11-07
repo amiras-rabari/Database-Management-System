@@ -28,11 +28,14 @@ namespace db::exec
             // Streaming phase (Stream): Merges the sorted runs and streams the final sorted output.
             SortOne,
             // distinct and group_by in hash mode. Blocking phase Open: build or partition
-            // while the child streams. Stream: one partition at a time.
+            // while the child streams. Stream: one partition at a time (a table,
+            // or a sort if the partition does not fit in the table).
             HashOne,
             // sort_merge_join, union, intersect, except. Blocking phase Open: sort the left
             // input like SortOne, then the right one like SortOne. Stream phase: merge the two
-            // sorted runs.
+            // sorted runs. union (chunk 08 Q1 (a)) instead feeds both inputs, one
+            // after the other, into ONE sorter and streams its final merge; the
+            // frame numbers are the same (run size, merges, 2 for streaming).
             SortTwo,
             // hash_join. Open: partition the left input, then the right one,
             // into the same P partition pages. Stream: probe partition by partition.
@@ -168,9 +171,11 @@ namespace db::exec
                 break;
             case Kind::HashOne:
                 // Build or partition: at least 1 page + the streaming child.
-                // Per partition: 1 table page + 1 reader page.
+                // Per partition: at least 1 table page + 1 reader page; but a
+                // partition with too many different tuples is sorted instead
+                // (chunk 09 Q1 (a)), and a sort's merge needs 3.
                 need.open = std::max(1 + needs[left].stream, needs[left].open);
-                need.stream = 2;
+                need.stream = 3;
                 break;
             case Kind::SortTwo:
                 // Each input is sorted like SortOne, one after the other.

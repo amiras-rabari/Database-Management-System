@@ -1,11 +1,15 @@
 #include "db/exec/executable_plan.h"
 
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
+#include "db/common/plan.h"
 #include "db/exec/frame_plan.h"
+#include "operators/hash_distinct.h"
 #include "operators/pipelined.h"
+#include "sort/set_ops.h"
 #include "sort/sort_operator.h"
 
 namespace db::exec
@@ -69,13 +73,30 @@ namespace db::exec
             case PlanOp::Sort:
                 return std::make_unique<SortOperator>(ctx, buildNode(node.children[0], ctx, frames, labels),
                                                       node.sortKeys, share);
-
-            // Written in chunks 08-13; each one replaces its line here.
             case PlanOp::Distinct:
-            case PlanOp::GroupBy:
+                // The plan reader requires `mode` (DECISIONS 2026-11-01).
+                if (*node.mode == ExecMode::Hash)
+                    return std::make_unique<HashDistinctOperator>(
+                        ctx, buildNode(node.children[0], ctx, frames, labels), share);
+                return std::make_unique<DedupSortOperator>(
+                    ctx, oneChild(buildNode(node.children[0], ctx, frames, labels)), share);
             case PlanOp::Union:
             case PlanOp::Intersect:
             case PlanOp::Except:
+            {
+                // Left built first, as for union_all.
+                std::unique_ptr<Operator> left = buildNode(node.children[0], ctx, frames, labels);
+                std::unique_ptr<Operator> right = buildNode(node.children[1], ctx, frames, labels);
+                if (node.op == PlanOp::Union)
+                    return std::make_unique<DedupSortOperator>(ctx, twoChildren(std::move(left), std::move(right)),
+                                                               share);
+                const SetMergeOperator::Kind kind = node.op == PlanOp::Intersect ? SetMergeOperator::Kind::Intersect
+                                                                                 : SetMergeOperator::Kind::Except;
+                return std::make_unique<SetMergeOperator>(ctx, std::move(left), std::move(right), kind, share);
+            }
+
+            // Written in chunks 09-13; each one replaces its line here.
+            case PlanOp::GroupBy:
             case PlanOp::NestedLoopJoin:
             case PlanOp::SortMergeJoin:
             case PlanOp::HashJoin:

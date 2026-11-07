@@ -128,6 +128,9 @@ namespace db::exec
     /// The children list for an operator with one input (filter, sort, ...):
     /// the base class takes a list of children.
     Operator::Children oneChild(std::unique_ptr<Operator> child);
+    /// The same for an operator with two inputs (union_all, set ops, joins):
+    /// left first, then right.
+    Operator::Children twoChildren(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right);
 
     /// The counters of `op` added to those of every node below it. The trace
     /// prints these page reads/writes (D1 (b)): for a join that equals the

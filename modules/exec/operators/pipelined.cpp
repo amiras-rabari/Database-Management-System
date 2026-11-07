@@ -6,17 +6,6 @@
 
 namespace db::exec
 {
-    namespace
-    {
-        Operator::Children twoChildren(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right)
-        {
-            Operator::Children children;
-            children.push_back(std::move(left));
-            children.push_back(std::move(right));
-            return children;
-        }
-    } // namespace
-
     // ---------------------------------------------------------------- seqscan
 
     // openHeapFile throws Error(Name) for an unknown table and reads nothing,
