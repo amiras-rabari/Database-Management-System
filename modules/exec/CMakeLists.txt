@@ -5,7 +5,9 @@ add_library(db_exec STATIC
     operators/operator.cpp
     operators/pipelined.cpp
     plan/executable_plan.cpp
+    sort/external_sort.cpp
     sort/run_file.cpp
+    sort/sort_operator.cpp
 )
 target_include_directories(db_exec PUBLIC include)
 # Private headers (operators/pipelined.h, ...) are included as "operators/<name>.h".
@@ -17,6 +19,7 @@ target_link_libraries(db_exec PUBLIC db_storage)
 # --- Tests ------------------------------------------------------------------
 add_executable(exec_tests
     tests/test_main.cpp
+    tests/external_sort_tests.cpp
     tests/frame_plan_tests.cpp
     tests/operator_tests.cpp
     tests/pipelined_tests.cpp

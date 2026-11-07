@@ -1,5 +1,6 @@
 #include "db/exec/operator.h"
 
+#include <memory>
 #include <utility>
 
 #include "db/storage/buffer_pool.h"
@@ -69,6 +70,14 @@ namespace db::exec
         doClose();
         finishCall(start);
         isOpen_ = false;
+    }
+
+    Operator::Children oneChild(std::unique_ptr<Operator> child)
+    {
+        // Children is alias for std::vector<std::unique_ptr<Operator>>
+        Operator::Children children;
+        children.push_back(std::move(child));
+        return children;
     }
 
     ExecCounters subtreeCounters(const Operator& op)

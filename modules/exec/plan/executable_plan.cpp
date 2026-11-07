@@ -6,6 +6,7 @@
 
 #include "db/exec/frame_plan.h"
 #include "operators/pipelined.h"
+#include "sort/sort_operator.h"
 
 namespace db::exec
 {
@@ -30,10 +31,15 @@ namespace db::exec
         // The children are built before this node's operator, because each
         // constructor checks its names against its children's schemas.
         //
+        // `frames` holds every node's FrameShare in the same pre-order, so
+        // labels.size() before the push is this node's index in it.
+        //
         // Recursive, one call per plan node (up to 1000 deep), so the frame
         // stays small: the node is passed by reference and nothing is copied.
-        std::unique_ptr<Operator> buildNode(const PlanNode& node, ExecContext& ctx, std::vector<std::string>& labels)
+        std::unique_ptr<Operator> buildNode(const PlanNode& node, ExecContext& ctx, const FramePlan& frames,
+                                            std::vector<std::string>& labels)
         {
+            const FrameShare& share = frames.shares[labels.size()];
             labels.push_back(labelOf(node));
 
             // The physical JSON reader guarantees the fields each op needs
@@ -44,25 +50,27 @@ namespace db::exec
             case PlanOp::SeqScan:
                 return std::make_unique<SeqScanOperator>(ctx, node.table);
             case PlanOp::Filter:
-                return std::make_unique<FilterOperator>(ctx, buildNode(node.children[0], ctx, labels), *node.condition);
+                return std::make_unique<FilterOperator>(ctx, buildNode(node.children[0], ctx, frames, labels), *node.condition);
             case PlanOp::Project:
-                return std::make_unique<ProjectOperator>(ctx, buildNode(node.children[0], ctx, labels), node.columns);
+                return std::make_unique<ProjectOperator>(ctx, buildNode(node.children[0], ctx, frames, labels), node.columns);
             case PlanOp::Limit:
-                return std::make_unique<LimitOperator>(ctx, buildNode(node.children[0], ctx, labels), node.limitCount);
+                return std::make_unique<LimitOperator>(ctx, buildNode(node.children[0], ctx, frames, labels), node.limitCount);
             case PlanOp::Rename:
-                return std::make_unique<RenameOperator>(ctx, buildNode(node.children[0], ctx, labels), node.alias);
+                return std::make_unique<RenameOperator>(ctx, buildNode(node.children[0], ctx, frames, labels), node.alias);
             case PlanOp::UnionAll:
             {
                 // Two separate statements: C++ may evaluate function
                 // arguments in any order, and the left child must be built
                 // (and labelled) first.
-                std::unique_ptr<Operator> left = buildNode(node.children[0], ctx, labels);
-                std::unique_ptr<Operator> right = buildNode(node.children[1], ctx, labels);
+                std::unique_ptr<Operator> left = buildNode(node.children[0], ctx, frames, labels);
+                std::unique_ptr<Operator> right = buildNode(node.children[1], ctx, frames, labels);
                 return std::make_unique<UnionAllOperator>(ctx, std::move(left), std::move(right));
             }
-
-            // Written in chunks 07-13; each one replaces its line here.
             case PlanOp::Sort:
+                return std::make_unique<SortOperator>(ctx, buildNode(node.children[0], ctx, frames, labels),
+                                                      node.sortKeys, share);
+
+            // Written in chunks 08-13; each one replaces its line here.
             case PlanOp::Distinct:
             case PlanOp::GroupBy:
             case PlanOp::Union:
@@ -152,12 +160,14 @@ namespace db::exec
     {
         // 1. Frames first: a plan that cannot fit in B is rejected before
         //    any table is looked up.
-        divideFrames(physicalPlan, ctx.pool().frameCount());
+        //    The shares are passed to the operators that need a number of
+        //    frames (sort, from chunk 07).
+        const FramePlan frames = divideFrames(physicalPlan, ctx.pool().frameCount());
 
         // 2. Build the operators. Any name, type or schema error is thrown
         //    here, before anything is opened.
         std::vector<std::string> labels;
-        std::unique_ptr<Operator> root = buildNode(physicalPlan, ctx, labels);
+        std::unique_ptr<Operator> root = buildNode(physicalPlan, ctx, frames, labels);
         return ExecutablePlan(ctx, std::move(root), std::move(labels));
     }
 } // namespace db::exec

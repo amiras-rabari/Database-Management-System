@@ -238,23 +238,25 @@ TEST_CASE("HeapScan: a table twenty times larger than B completes with 1 pin; re
         // only if something were read twice and cached, which never happens.
         CHECK(scan.cost.reads == 81);
         CHECK(scan.cost.misses == 81);
-        // The directory page is fetched 81 times (once per data page, plus
-        // once to find there is no next entry); only the first is a miss.
-        // Under LRU it is always the newest page, so it is never evicted.
-        CHECK(scan.cost.hits == 80);
+        // The directory page is fetched once (2026-11-07): the scan notes its
+        // entry count and works out the data page ids, so there are no
+        // repeat fetches and no hits.
+        CHECK(scan.cost.hits == 0);
         CHECK(scan.cost.writes == 0);
     }
 }
 
-TEST_CASE("HeapScan: works with B = 1 (one page pinned at a time); the directory page is then re-read")
+TEST_CASE("HeapScan: works with B = 1 (one page pinned at a time) and still reads each page once")
 {
     // Same 81-page table. With one frame, every fetch replaces the page
-    // before it: the directory page is read 81 times and each data page once.
+    // before it, but each page is fetched only once: the directory page is
+    // read once, not once per data page. This is the case of a scan under
+    // an exec operator that holds every other frame (exec chunk 07).
     Table table("scan_one_frame", wideSchema());
     table.fill(160, wideRow);
     const ColdScan scan = coldScan(table, 1);
     CHECK(scan.rows == 160);
-    CHECK(scan.cost.reads == 80 + 81);
+    CHECK(scan.cost.reads == 81);
     CHECK(scan.cost.hits == 0);
     CHECK(scan.cost.writes == 0);
 }

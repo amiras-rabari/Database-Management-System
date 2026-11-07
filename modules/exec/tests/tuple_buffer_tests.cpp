@@ -99,3 +99,49 @@ TEST_CASE("buffer: popBack and clear give frames back; the destructor too")
     CHECK(p.pool.pinnedFrameCount() == 0); // the destructor released its frame
     CHECK(p.pool.peakPinnedCount() == 2);
 }
+
+TEST_CASE("buffer: pages fill like real pages - 3 pages hold 720 tuples, not 721")
+{
+    // A real page holds 240 of these tuples and wastes 8 bytes. Adding up
+    // bytes alone would allow 721 in 3 pages (721 * 17 = 12257 <= 3 * 4088),
+    // but 721 tuples need 4 pages on disk (chunk 07, buffer page count (a)).
+    Pool p;
+    const Schema schema = smallSchema();
+    BoundedTupleBuffer buffer(p.pool, schema, 3);
+    for (int i = 0; i < 720; ++i)
+        REQUIRE(buffer.tryAdd(smallTuple(i)));
+    CHECK_FALSE(buffer.tryAdd(smallTuple(720)));
+    CHECK(buffer.size() == 720);
+    CHECK(buffer.pagesUsed() == 3);
+}
+
+TEST_CASE("buffer: giveFrameToOutput hands one frame to the output page; emptying gives back the rest")
+{
+    Pool p;
+    const Schema schema = smallSchema();
+    BoundedTupleBuffer buffer(p.pool, schema, 3);
+    for (int i = 0; i < 720; ++i)
+        REQUIRE(buffer.tryAdd(smallTuple(i)));
+    CHECK(p.pool.pinnedFrameCount() == 3);
+
+    buffer.giveFrameToOutput();
+    CHECK(buffer.pagesUsed() == 2);
+    CHECK(p.pool.pinnedFrameCount() == 2); // the 3rd frame is free for the output page
+
+    // After one page's worth (240 tuples) has left, 2 pages of tuples are
+    // left, and the buffer keeps one frame fewer than that: 1.
+    for (int i = 0; i < 240; ++i)
+        buffer.popBack();
+    CHECK(buffer.pagesUsed() == 1);
+    CHECK(p.pool.pinnedFrameCount() == 1);
+
+    while (buffer.size() > 0)
+        buffer.popBack();
+    CHECK(buffer.pagesUsed() == 0);
+    CHECK(p.pool.pinnedFrameCount() == 0);
+
+    // Empty again: the buffer counts normally and can fill all 3 pages.
+    for (int i = 0; i < 720; ++i)
+        REQUIRE(buffer.tryAdd(smallTuple(i)));
+    CHECK(buffer.pagesUsed() == 3);
+}

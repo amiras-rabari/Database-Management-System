@@ -14,16 +14,24 @@
 /// ```
 /// Pins: **one page at a time**. §M1.5 allows at most one directory page and
 /// one data page; exec's seqscan has a budget of 1 frame (§M2.3), so the
-/// scan never holds both. Before each data page it pins the directory page,
-/// reads the next data page id, and unpins it again. The scan keeps only
-/// *where it is* (the directory page number, one guard and two counters),
-/// never a list of rows or pages: a scan that read the table into a list
-/// would hold more than B pages' worth of data and fail the module.
+/// scan never holds both.
 ///
-/// Cost of that choice: the directory page is fetched once per data page.
-/// Under LRU it is always the most recently used page, so with B >= 2 it
-/// stays resident and each fetch is a hit (every page is read once). Under
-/// CLOCK at a tiny B, or at B = 1, it can be evicted and read again.
+/// Each directory page is read **once** (2026-11-07, exec chunk 07): the
+/// scan pins it, notes how many entries it has and where the next directory
+/// page is, and unpins it. It then visits the data pages of those entries
+/// by number. That works because entry i of directory page d is always data
+/// page d + 1 + i: HeapFile::insert adds data pages in that order and
+/// refuses any other (directory pages are the multiples of 682). So the
+/// scan keeps only a few numbers (directory page, entry count, next
+/// directory page, entry, slot) and one guard, never a list of rows or pages:
+/// a scan that read the table into a list would hold more than B pages'
+/// worth of data and fail the module.
+///
+/// Cost: every page of the table (data and directory) is fetched exactly
+/// once, at any B and with either policy, even when the scan has only one
+/// frame left in the pool (exec's blocking operators reserve the others).
+/// The earlier version fetched the directory page again before every data
+/// page; with no spare frame that turned into a second disk read per page.
 
 #include <cstdint>
 
@@ -94,15 +102,21 @@ namespace db::storage
         /// Moves on to the next live record. Called by next() inside a
         /// try block, so any exception closes the scan.
         bool advance(Rid& rid, Tuple& tuple);
+        /// Pins directory page `pageId`, notes its entry count and next
+        /// directory page, and unpins it. Only called when no data page is pinned.
+        void readDirectory(PageId pageId);
 
         BufferPool* pool_;
         FileId fileId_;
         Schema schema_;
         State state_ = State::NotStarted;
 
-        /// The current directory page (its number only; it is not kept
-        /// pinned) and the next entry on it to visit.
+        /// What the scan noted from the current directory page (which is
+        /// not kept pinned): its number, its entry count and the next
+        /// directory page. Plus the next entry on it to visit.
         PageId dirPageId_ = 0;
+        std::uint16_t entryCount_ = 0;
+        PageId nextDirPage_ = kInvalidPageId;
         std::uint16_t nextEntry_ = 0;
         /// The current data page (empty between pages) and the next slot on it to look at.
         PageGuard dataGuard_;

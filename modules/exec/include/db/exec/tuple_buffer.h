@@ -15,9 +15,12 @@ namespace db::exec
     ///
     /// A tuple costs what it would take on a slotted page: its record bytes
     /// (storage encodedLength) plus a 4-byte slot. A page offers
-    /// 4096 - 8 = 4088 bytes, so the buffer uses ceil(total bytes / 4088)
-    /// pages (open question 3 (a)). Example: 13-byte records cost 17 bytes,
-    /// so one page holds 240 of them, the same as storage's recordsPerPage(13).
+    /// 4096 - 8 = 4088 bytes. Pages fill like real pages (chunk 07, changed
+    /// from chunk 03's byte total): a tuple goes on the last page if it fits
+    /// there, otherwise it starts a new page. Example: 13-byte records cost
+    /// 17 bytes, so a page holds 240 of them (8 bytes wasted) and 3 pages
+    /// hold 720, exactly what a run of 3 pages holds on disk. A byte total
+    /// would allow 721 (721 * 17 <= 3 * 4088), which needs 4 pages on disk.
     ///
     /// Each page the buffer uses is a frame reserved in the buffer pool
     /// (D2 (b)), taken when the buffer grows onto a new page and given back
@@ -46,8 +49,20 @@ namespace db::exec
         bool tryAdd(Tuple tuple);
 
         /// Removes the last tuple. Gives a frame back when the remaining
-        /// tuples fit in one page fewer. The buffer must not be empty.
+        /// tuples' bytes fit in one page fewer. The buffer must not be empty.
+        /// Add again only once the buffer is empty: until then a new tuple
+        /// always starts a new page (the page layout after removals is not
+        /// tracked, so the buffer counts on the safe side).
         void popBack();
+
+        /// For writing the tuples out as a run (chunk 07 Q3 (a)): gives one
+        /// frame back to the pool, for the page the tuples are copied onto.
+        /// That page is one of the buffer's frames: each tuple leaves the
+        /// buffer (popBack) as it goes onto the page, so the data in memory
+        /// never grows. From now until the buffer is empty, popBack keeps one
+        /// frame fewer than the remaining tuples need. Call it once, on a
+        /// buffer that is not empty, then remove every tuple with popBack.
+        void giveFrameToOutput();
 
         /// Removes every tuple and gives every frame back.
         void clear();
@@ -71,6 +86,11 @@ namespace db::exec
         std::vector<Tuple> tuples_;
         /// Sum of bytesOnPage over tuples_.
         std::size_t totalBytes_ = 0;
+        /// Bytes used on the last page, while the buffer is filling.
+        std::size_t bytesOnLastPage_ = 0;
+        /// Frames reserved in the pool now.
         std::size_t pagesUsed_ = 0;
+        /// True between giveFrameToOutput and the buffer becoming empty.
+        bool frameGiven_ = false;
     };
 } // namespace db::exec

@@ -125,6 +125,10 @@ namespace db::exec
         bool isOpen_ = false;
     };
 
+    /// The children list for an operator with one input (filter, sort, ...):
+    /// the base class takes a list of children.
+    Operator::Children oneChild(std::unique_ptr<Operator> child);
+
     /// The counters of `op` added to those of every node below it. The trace
     /// prints these page reads/writes (D1 (b)): for a join that equals the
     /// textbook cost, which includes reading its inputs (SPEC §M2.5,

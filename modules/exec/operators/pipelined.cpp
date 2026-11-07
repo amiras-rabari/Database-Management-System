@@ -8,15 +8,6 @@ namespace db::exec
 {
     namespace
     {
-        // The base class takes a list of children; most operators here have one.
-        Operator::Children oneChild(std::unique_ptr<Operator> child)
-        {
-            // Children is alias for std::vector<std::unique_ptr<Operator>>
-            Operator::Children children;
-            children.push_back(std::move(child));
-            return children;
-        }
-
         Operator::Children twoChildren(std::unique_ptr<Operator> left, std::unique_ptr<Operator> right)
         {
             Operator::Children children;
