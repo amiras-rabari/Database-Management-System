@@ -4,6 +4,8 @@ add_library(db_exec STATIC
     budget/tuple_buffer.cpp
     operators/operator.cpp
     operators/pipelined.cpp
+    plan/executable_plan.cpp
+    sort/run_file.cpp
 )
 target_include_directories(db_exec PUBLIC include)
 # Private headers (operators/pipelined.h, ...) are included as "operators/<name>.h".
@@ -18,6 +20,8 @@ add_executable(exec_tests
     tests/frame_plan_tests.cpp
     tests/operator_tests.cpp
     tests/pipelined_tests.cpp
+    tests/plan_builder_tests.cpp
+    tests/run_file_tests.cpp
     tests/tuple_buffer_tests.cpp
 )
 target_link_libraries(exec_tests PRIVATE db_exec doctest)

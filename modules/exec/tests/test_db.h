@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "db/common/schema.h"
+#include "db/common/value.h"
 #include "db/exec/operator.h"
 #include "db/storage/heap_file.h"
 #include "db/storage/replacement_policy.h"
@@ -66,6 +67,22 @@ namespace db::exec::test
         std::size_t frames_;
         std::unique_ptr<storage::StorageEngine> engine_;
     };
+
+    /// R(a INT, b VARCHAR(10), c INT), qualified by `table`. With a 3-byte b
+    /// a record is 4 + (2 + 3) + 4 = 13 bytes, so 240 rows fill one data page.
+    inline Schema rSchema(const std::string& table = "R")
+    {
+        return Schema({{table, "a", Type::Int, 0}, {table, "b", Type::Varchar, 10}, {table, "c", Type::Int, 0}});
+    }
+
+    /// Row i: a = i, b = 'csc' for even i and 'eng' for odd i, c = i mod 7.
+    inline std::vector<Tuple> rRows(int count)
+    {
+        std::vector<Tuple> rows;
+        for (int i = 0; i < count; ++i)
+            rows.push_back({Value::ofInt(i), Value::ofVarchar(i % 2 == 0 ? "csc" : "eng"), Value::ofInt(i % 7)});
+        return rows;
+    }
 
     /// open, next until END, close; returns every tuple.
     inline std::vector<Tuple> drain(Operator& op)

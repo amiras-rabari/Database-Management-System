@@ -25,26 +25,12 @@
 using namespace db;
 using namespace db::exec;
 using db::exec::test::drain;
+using db::exec::test::rRows;
+using db::exec::test::rSchema;
 using db::exec::test::TestDb;
 
 namespace
 {
-    // R(a INT, b VARCHAR(10), c INT). With a 3-byte b a record is
-    // 4 + (2 + 3) + 4 = 13 bytes, so 240 rows fill one data page.
-    Schema rSchema()
-    {
-        return Schema({{"R", "a", Type::Int, 0}, {"R", "b", Type::Varchar, 10}, {"R", "c", Type::Int, 0}});
-    }
-
-    // Row i: a = i, b = 'csc' for even i and 'eng' for odd i, c = i mod 7.
-    std::vector<Tuple> rRows(int count)
-    {
-        std::vector<Tuple> rows;
-        for (int i = 0; i < count; ++i)
-            rows.push_back({Value::ofInt(i), Value::ofVarchar(i % 2 == 0 ? "csc" : "eng"), Value::ofInt(i % 7)});
-        return rows;
-    }
-
     // A database with R = 2,400 rows = exactly 10 data pages, and a cold pool.
     struct TenPages
     {
