@@ -22,6 +22,7 @@ target_include_directories(doctest SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/
 add_subdirectory(modules/common)
 add_subdirectory(modules/storage)
 add_subdirectory(modules/exec)
+add_subdirectory(modules/sql)
 
 # Executables and their CLI support libraries (after every module).
 add_subdirectory(apps)
