@@ -7,6 +7,7 @@
 
 #include "db/common/plan.h"
 #include "db/exec/frame_plan.h"
+#include "join/nested_loop_join.h"
 #include "operators/grouping.h"
 #include "operators/hash_group.h"
 #include "operators/pipelined.h"
@@ -109,8 +110,16 @@ namespace db::exec
                 return std::make_unique<SetMergeOperator>(ctx, std::move(left), std::move(right), kind, share);
             }
 
-            // Written in chunks 11-13; each one replaces its line here.
             case PlanOp::NestedLoopJoin:
+            {
+                // Left built first, as for union_all.
+                std::unique_ptr<Operator> left = buildNode(node.children[0], ctx, frames, labels);
+                std::unique_ptr<Operator> right = buildNode(node.children[1], ctx, frames, labels);
+                return std::make_unique<NestedLoopJoinOperator>(ctx, std::move(left), std::move(right),
+                                                                *node.condition, share);
+            }
+
+            // Written in chunks 12-13; each one replaces its line here.
             case PlanOp::SortMergeJoin:
             case PlanOp::HashJoin:
             // Logical ops never get here: divideFrames already rejected them.
