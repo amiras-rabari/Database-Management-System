@@ -1,7 +1,9 @@
 #include "db/common/value.h"
 
+#include <charconv>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #include "db/common/error.h"
@@ -17,6 +19,8 @@ namespace db
                 return "INT";
             case Type::Varchar:
                 return "VARCHAR";
+            case Type::Real:
+                return "REAL";
         }
         throw std::logic_error("typeName: unknown Type value");
     }
@@ -36,9 +40,18 @@ namespace db
         return Value(Storage(std::in_place_type<std::string>, std::move(value)));
     }
 
+    Value Value::ofReal(double value)
+    {
+        return Value(Storage(std::in_place_type<double>, value));
+    }
+
     Type Value::type() const
     {
-        return std::holds_alternative<std::int32_t>(data_) ? Type::Int : Type::Varchar;
+        if (std::holds_alternative<std::int32_t>(data_))
+            return Type::Int;
+        if (std::holds_alternative<std::string>(data_))
+            return Type::Varchar;
+        return Type::Real;
     }
 
     std::int32_t Value::asInt() const
@@ -58,7 +71,17 @@ namespace db
         const std::string* value = std::get_if<std::string>(&data_);
         if (value == nullptr)
         {
-            throw std::logic_error("Value::asVarchar called on an INT value");
+            throw std::logic_error("Value::asVarchar called on a value that is not a VARCHAR");
+        }
+        return *value;
+    }
+
+    double Value::asReal() const
+    {
+        const double* value = std::get_if<double>(&data_);
+        if (value == nullptr)
+        {
+            throw std::logic_error("Value::asReal called on a value that is not a REAL");
         }
         return *value;
     }
@@ -68,6 +91,18 @@ namespace db
         if (type() == Type::Int)
         {
             return std::to_string(asInt());
+        }
+        if (type() == Type::Real)
+        {
+            // Fixed notation with exactly four decimals, rounded like
+            // printf's "%.4f" (7/2 -> "3.5000", 1/3 -> "0.3333"). to_chars
+            // only formats into memory (library code may not print).
+            // 64 bytes hold any double printed this way up to about 1e58,
+            // far beyond an average of int32 values.
+            char text[64];
+            const std::to_chars_result end =
+                std::to_chars(text, text + sizeof text, asReal(), std::chars_format::fixed, 4);
+            return std::string(text, end.ptr);
         }
         return asVarchar();
     }
@@ -84,18 +119,33 @@ namespace db
         return left.data_ < right.data_;
     }
 
+    bool typesComparable(Type left, Type right)
+    {
+        if (left == right)
+            return true;
+        return left != Type::Varchar && right != Type::Varchar;
+    }
+
     int compareValues(const Value& left, const Value& right)
     {
-        if (left.type() != right.type())
+        if (!typesComparable(left.type(), right.type()))
         {
             throw Error(ErrorCategory::Type,
                         "Cannot compare " + std::string(typeName(left.type())) + " with " +
                             std::string(typeName(right.type())) + ".");
         }
-        if (left.type() == Type::Int)
+        if (left.type() == Type::Int && right.type() == Type::Int)
         {
             const std::int32_t a = left.asInt();
             const std::int32_t b = right.asInt();
+            return a < b ? -1 : (a > b ? 1 : 0);
+        }
+        if (left.type() != Type::Varchar)
+        {
+            // At least one REAL: compare both as doubles. An int32 converts
+            // to a double exactly, so 150 and 150.0 are equal.
+            const double a = left.type() == Type::Int ? left.asInt() : left.asReal();
+            const double b = right.type() == Type::Int ? right.asInt() : right.asReal();
             return a < b ? -1 : (a > b ? 1 : 0);
         }
         // char_traits<char>::compare orders bytes as unsigned char, so a byte

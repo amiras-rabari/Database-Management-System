@@ -34,7 +34,15 @@ namespace db::exec
     public:
         /// An empty buffer that may use up to `capacityPages` pages.
         /// Reserves nothing yet.
-        BoundedTupleBuffer(storage::BufferPool& pool, const Schema& schema, std::size_t capacityPages);
+        ///
+        /// With `chargeLargestSize`, every tuple costs the most bytes a
+        /// tuple of `schema` can take (each VARCHAR(n) as n bytes), whatever
+        /// its values. Then a kept tuple may be changed in place through
+        /// tuples() without changing the count. Hash group_by needs this:
+        /// a group's MAX of a VARCHAR can grow from "ab" to "abcdef"
+        /// (chunk 10).
+        BoundedTupleBuffer(storage::BufferPool& pool, const Schema& schema, std::size_t capacityPages,
+                           bool chargeLargestSize = false);
         ~BoundedTupleBuffer();
 
         /// disable copy constructor and diables copy assignments
@@ -77,12 +85,14 @@ namespace db::exec
         std::vector<Tuple>& tuples();
 
     private:
-        /// What `tuple` costs on a page: record bytes + 4-byte slot.
+        /// What `tuple` costs on a page: record bytes + 4-byte slot (the
+        /// largest record bytes with chargeLargestSize).
         std::size_t bytesOnPage(const Tuple& tuple) const;
 
         storage::BufferPool& pool_;
         const Schema& schema_;
         std::size_t capacityPages_;
+        bool chargeLargestSize_;
         std::vector<Tuple> tuples_;
         /// Sum of bytesOnPage over tuples_.
         std::size_t totalBytes_ = 0;

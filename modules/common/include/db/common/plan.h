@@ -109,6 +109,16 @@ namespace db
         friend bool operator==(const Aggregate&, const Aggregate&) = default;
     };
 
+    /// The function's name as plan JSON writes it: `count sum avg min max`.
+    std::string_view aggregateFunctionName(AggregateFunction function);
+
+    /// The output column name of an aggregate (SPEC §M2.2/§M2.3; the one
+    /// rule for exec, sql and opt, DECISIONS 2026-11-07): `count(*)` gives
+    /// `count_star`, otherwise `<fn>_<qualifier>_<column>`, e.g. `avg(R.salary)`
+    /// gives `avg_R_salary`; a bare column gives `<fn>_<column>` (`sum_a`).
+    /// The output column itself has no qualifier.
+    std::string aggregateOutputName(const Aggregate& aggregate);
+
     /// A plan tree node. Copyable, no pointers. Build nodes with the named
     /// constructors; the fields an op does not use keep their defaults.
     struct PlanNode

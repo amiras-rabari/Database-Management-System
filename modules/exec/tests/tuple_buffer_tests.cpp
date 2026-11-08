@@ -145,3 +145,24 @@ TEST_CASE("buffer: giveFrameToOutput hands one frame to the output page; emptyin
         REQUIRE(buffer.tryAdd(smallTuple(i)));
     CHECK(buffer.pagesUsed() == 3);
 }
+
+TEST_CASE("buffer: with chargeLargestSize every tuple costs its schema's largest record")
+{
+    // Chunk 10, hash group_by: the largest record of smallSchema is
+    // 4 + 4 + (2 + 10) = 20 bytes, + 4 slot = 24, so a page holds
+    // floor(4088 / 24) = 170 tuples, whatever the VARCHAR holds (here 3 bytes).
+    Pool p;
+    const Schema schema = smallSchema();
+    BoundedTupleBuffer buffer(p.pool, schema, 1, true);
+    for (int i = 0; i < 170; ++i)
+        REQUIRE(buffer.tryAdd(smallTuple(i)));
+    CHECK_FALSE(buffer.tryAdd(smallTuple(170)));
+
+    // A kept tuple may grow in place up to the largest size; emptying the
+    // buffer then gives back exactly its one frame.
+    buffer.tuples()[0][2] = Value::ofVarchar("abcdefghij");
+    while (buffer.size() > 0)
+        buffer.popBack();
+    CHECK(buffer.pagesUsed() == 0);
+    CHECK(p.pool.pinnedFrameCount() == 0);
+}

@@ -1,8 +1,8 @@
 #pragma once
 
-// A small in-memory hash table of whole tuples that stays inside its frames
-// (chunk 09). Hash distinct uses it to remember the tuples it has seen.
-// Private to exec.
+// A small in-memory hash table of tuples that stays inside its frames
+// (chunk 09). Hash distinct uses it to remember the tuples it has seen;
+// hash group_by (chunk 10) keeps one row per group in it. Private to exec.
 
 #include <cstddef>
 #include <cstdint>
@@ -19,6 +19,10 @@ namespace db::exec
     /// uncounted tuples) and come out in the same order on every platform
     /// (G4: no unordered-container order).
     ///
+    /// Two entries are "equal" when their first `keyCount` columns are
+    /// equal: every column for distinct, the group key for group_by (its
+    /// rows start with the key columns).
+    ///
     /// Beside them, a bucket array: bucket k lists the positions of the
     /// entries whose h2 hash mod the bucket count is k. It holds numbers,
     /// not tuples, and is not counted (chunk 09 Q2 (a), user's choice).
@@ -26,20 +30,26 @@ namespace db::exec
     {
     public:
         /// An empty table of at most `capacityPages` pages. Every tuple
-        /// comparison during a lookup adds 1 to `comparisons`. `pool`,
+        /// comparison during a lookup adds 1 to `comparisons`.
+        /// `chargeLargestSize` is passed to the buffer: set it when entries
+        /// will be changed in place (see BoundedTupleBuffer). `pool`,
         /// `schema` and `comparisons` must outlive the table.
-        TupleHashTable(storage::BufferPool& pool, const Schema& schema, std::size_t capacityPages,
-                       std::uint64_t& comparisons);
+        TupleHashTable(storage::BufferPool& pool, const Schema& schema, std::size_t keyCount,
+                       std::size_t capacityPages, bool chargeLargestSize, std::uint64_t& comparisons);
 
         enum class InsertResult
         {
             Added, // new: kept at the end of entries()
-            Duplicate, // an equal tuple is already in the table
+            Duplicate, // an equal entry is already here, at foundEntry()
             Full // new, but there is no room; nothing changed
         };
 
-        /// Keeps `tuple` unless an equal one (on every column) is already here.
+        /// Keeps `tuple` unless an equal entry (on the key) is already here.
         InsertResult insertIfNew(const Tuple& tuple);
+
+        /// After insertIfNew returned Duplicate: the position of the equal
+        /// entry in entries().tuples().
+        std::size_t foundEntry() const { return foundEntry_; }
 
         /// The entries in insertion order. To write them out, use
         /// giveFrameToOutput and popBack on it, then call clearBuckets().
@@ -51,7 +61,8 @@ namespace db::exec
     private:
         BoundedTupleBuffer entries_;
         std::vector<std::vector<std::size_t>> buckets_;
-        std::vector<std::size_t> allColumns_;
+        std::vector<std::size_t> keyColumns_;
+        std::size_t foundEntry_ = 0;
         std::uint64_t& comparisons_;
     };
 } // namespace db::exec

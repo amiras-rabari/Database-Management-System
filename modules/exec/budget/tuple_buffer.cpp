@@ -1,7 +1,10 @@
 #include "db/exec/tuple_buffer.h"
 
+#include <cstddef>
 #include <utility>
 
+#include "db/common/schema.h"
+#include "db/common/value.h"
 #include "db/storage/page.h"
 #include "db/storage/record_codec.h"
 #include "db/storage/slotted_page.h"
@@ -22,8 +25,9 @@ namespace db::exec
         }
     } // namespace
 
-    BoundedTupleBuffer::BoundedTupleBuffer(storage::BufferPool& pool, const Schema& schema, std::size_t capacityPages)
-        : pool_(pool), schema_(schema), capacityPages_(capacityPages)
+    BoundedTupleBuffer::BoundedTupleBuffer(storage::BufferPool& pool, const Schema& schema, std::size_t capacityPages,
+                                           bool chargeLargestSize)
+        : pool_(pool), schema_(schema), capacityPages_(capacityPages), chargeLargestSize_(chargeLargestSize)
     {
     }
 
@@ -34,7 +38,23 @@ namespace db::exec
 
     std::size_t BoundedTupleBuffer::bytesOnPage(const Tuple& tuple) const
     {
-        return storage::encodedLength(tuple, schema_) + storage::kSlotSize;
+        if (!chargeLargestSize_)
+            return storage::encodedLength(tuple, schema_) + storage::kSlotSize;
+
+        // The largest record of the schema, as the record codec lays it out:
+        // INT 4 bytes, REAL 8, VARCHAR(n) a 2-byte length + n bytes.
+        std::size_t bytes = 0;
+        for (std::size_t i = 0; i < schema_.size(); ++i)
+        {
+            const Column& column = schema_.column(i);
+            if (column.type == Type::Int)
+                bytes += 4;
+            else if (column.type == Type::Real)
+                bytes += 8;
+            else
+                bytes += 2 + static_cast<std::size_t>(column.varcharLength);
+        }
+        return bytes + storage::kSlotSize;
     }
 
     bool BoundedTupleBuffer::tryAdd(Tuple tuple)

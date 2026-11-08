@@ -187,3 +187,28 @@ TEST_CASE("a truncated or overlong record is a logic_error")
     bytes.push_back(std::byte{0});
     CHECK_THROWS_AS(decodeRecord(bytes, schema), std::logic_error);
 }
+
+// Exec chunk 10 (DECISIONS 2026-11-07): AVG's REAL values may reach a
+// temporary run (e.g. a sort above a group_by), so the codec stores a REAL
+// as the 8 bytes of its IEEE-754 bits, little-endian. Tables never have a
+// REAL column (a schema text can only say INT or VARCHAR(n)).
+TEST_CASE("a REAL is 8 bytes of IEEE-754 bits and round-trips exactly")
+{
+    const Schema schema({Column{"R", "dept", Type::Varchar, 5}, Column{"", "avg_R_salary", Type::Real, 0}});
+    const Tuple tuple{Value::ofVarchar("cs"), Value::ofReal(1.5)};
+
+    CHECK(encodedLength(tuple, schema) == 2 + 2 + 8);
+    const std::vector<std::byte> bytes = encodeRecord(tuple, schema);
+    // 1.5 = 0x3FF8000000000000, lowest byte first.
+    CHECK(hex(bytes) == "02 00 63 73 00 00 00 00 00 00 F8 3F");
+    CHECK(decodeRecord(bytes, schema) == tuple);
+
+    // 1/3 has no short decimal form; every bit must come back.
+    const Tuple third{Value::ofVarchar("ee"), Value::ofReal(1.0 / 3)};
+    CHECK(decodeRecord(encodeRecord(third, schema), schema)[1].asReal() == 1.0 / 3);
+
+    // An INT in a REAL column is still a type error.
+    const auto error = errorFrom([&] { encodeRecord({Value::ofVarchar("cs"), Value::ofInt(1)}, schema); });
+    REQUIRE(error.has_value());
+    CHECK(error->category() == ErrorCategory::Type);
+}

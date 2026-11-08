@@ -30,11 +30,19 @@ namespace db::exec
     /// sort on them, equal tuples are next to each other.
     std::vector<SortKey> allColumnsAscending(const Schema& schema);
 
+    /// The same for the first `count` columns only (a group's key comes
+    /// first in group_by's rows, chunk 10).
+    std::vector<SortKey> firstColumnsAscending(const Schema& schema, std::size_t count);
+
     /// Compares two tuples column by column, by position: negative if `a`
     /// comes first, 0 if equal, positive if `b` comes first (the order of
     /// allColumnsAscending). Adds 1 to `comparisons`. Both tuples must have
     /// the same types position by position (checked when the plan is built).
     int compareRows(const Tuple& a, const Tuple& b, std::uint64_t& comparisons);
+
+    /// Like compareRows, but only on the first `count` columns: a group's
+    /// key comes first in group_by's rows (chunk 10). Counts 1 comparison.
+    int compareFirstColumns(const Tuple& a, const Tuple& b, std::size_t count, std::uint64_t& comparisons);
 
     /// distinct (sort mode, one child) and union (two children). Every input
     /// tuple goes into ONE sorter, sorted on all columns; equal tuples then

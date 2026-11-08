@@ -1,5 +1,7 @@
 #include "db/storage/record_codec.h"
 
+#include <bit>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -17,6 +19,9 @@ namespace db::storage
         // Field sizes of §M1.3: an INT is 4 bytes; a VARCHAR is a uint16
         // length prefix followed by its bytes.
         constexpr std::uint32_t kIntSize = 4;
+        // A REAL (AVG's result, exec chunk 10) is the 8 bytes of its IEEE-754
+        // bits. Only temporary runs hold one; no table column is REAL.
+        constexpr std::uint32_t kRealSize = 8;
         constexpr std::uint32_t kVarcharPrefixSize = 2;
 
         // Throws unless `tuple` can be stored under `schema`: one value per
@@ -72,6 +77,8 @@ namespace db::storage
         {
             if (schema.column(i).type == Type::Int)
                 length += kIntSize;
+            else if (schema.column(i).type == Type::Real)
+                length += kRealSize;
             else
                 // At most 255 bytes (checked above), so the cast loses nothing.
                 length += kVarcharPrefixSize + static_cast<std::uint32_t>(tuple[i].asVarchar().size());
@@ -94,6 +101,13 @@ namespace db::storage
             {
                 writeI32(bytes, offset, tuple[i].asInt());
                 offset += kIntSize;
+            }
+            else if (schema.column(i).type == Type::Real)
+            {
+                // bit_cast copies the double's 64 bits unchanged, so decoding
+                // gives back exactly the same number.
+                writeU64(bytes, offset, std::bit_cast<std::uint64_t>(tuple[i].asReal()));
+                offset += kRealSize;
             }
             else
             {
@@ -122,6 +136,11 @@ namespace db::storage
             {
                 tuple.push_back(Value::ofInt(readI32(bytes, offset)));
                 offset += kIntSize;
+            }
+            else if (schema.column(i).type == Type::Real)
+            {
+                tuple.push_back(Value::ofReal(std::bit_cast<double>(readU64(bytes, offset))));
+                offset += kRealSize;
             }
             else
             {

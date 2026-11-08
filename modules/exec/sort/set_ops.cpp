@@ -22,9 +22,17 @@ namespace db::exec
     // key names exactly one column.
     std::vector<SortKey> allColumnsAscending(const Schema& schema)
     {
+        return firstColumnsAscending(schema, schema.size());
+    }
+
+    std::vector<SortKey> firstColumnsAscending(const Schema& schema, std::size_t count)
+    {
         std::vector<SortKey> keys;
-        for (const Column& column : schema.columns())
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const Column& column = schema.column(i);
             keys.push_back(SortKey{ColumnRef{column.qualifier, column.name}, true});
+        }
         return keys;
     }
 
@@ -35,8 +43,13 @@ namespace db::exec
     // like the sorter's comparator (chunk 07 Q2 (a)).
     int compareRows(const Tuple& a, const Tuple& b, std::uint64_t& comparisons)
     {
+        return compareFirstColumns(a, b, a.size(), comparisons);
+    }
+
+    int compareFirstColumns(const Tuple& a, const Tuple& b, std::size_t count, std::uint64_t& comparisons)
+    {
         ++comparisons;
-        for (std::size_t i = 0; i < a.size(); ++i)
+        for (std::size_t i = 0; i < count; ++i)
         {
             const int result = compareValues(a[i], b[i]);
             if (result != 0)

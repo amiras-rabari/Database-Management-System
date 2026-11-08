@@ -61,24 +61,6 @@ namespace db
                                                        AggregateFunction::Avg, AggregateFunction::Min,
                                                        AggregateFunction::Max};
 
-        const char* functionName(AggregateFunction function)
-        {
-            switch (function)
-            {
-                case AggregateFunction::Count:
-                    return "count";
-                case AggregateFunction::Sum:
-                    return "sum";
-                case AggregateFunction::Avg:
-                    return "avg";
-                case AggregateFunction::Min:
-                    return "min";
-                case AggregateFunction::Max:
-                    return "max";
-            }
-            throw std::logic_error("functionName: unknown AggregateFunction value");
-        }
-
         // The ops whose node carries a `condition`.
         bool hasCondition(PlanOp op)
         {
@@ -245,7 +227,8 @@ namespace db
                     for (const Aggregate& aggregate : node.aggregates)
                     {
                         aggregates.push_back(PlanJson::array(
-                            {functionName(aggregate.function), aggregate.column ? aggregate.column->toString() : kStar}));
+                            {std::string(aggregateFunctionName(aggregate.function)),
+                             aggregate.column ? aggregate.column->toString() : kStar}));
                     }
                     writeNode(node.children[0], out[kChild]);
                     return;
@@ -466,7 +449,7 @@ namespace db
                 std::optional<AggregateFunction> function;
                 for (AggregateFunction candidate : kAllFunctions)
                 {
-                    if (name == functionName(candidate))
+                    if (name == aggregateFunctionName(candidate))
                     {
                         function = candidate;
                     }

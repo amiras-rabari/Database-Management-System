@@ -28,7 +28,8 @@
 #include "db/storage/temp_file.h"
 #include "join/hash_partitioner.h"
 #include "join/hashing.h"
-#include "operators/hash_distinct.h"
+#include "operators/grouping.h"
+#include "operators/hash_group.h"
 #include "operators/pipelined.h"
 #include "sort/run_file.h"
 #include "tests/test_db.h"
@@ -275,7 +276,9 @@ TEST_CASE("hash distinct: partitions with too many different values are sorted i
     CHECK(frames.shares[0] == FrameShare{3, 3, 2});
 
     ExecContext ctx(db.engine());
-    HashDistinctOperator op(ctx, std::make_unique<SeqScanOperator>(ctx, "A"), frames.shares[0]);
+    auto scan = std::make_unique<SeqScanOperator>(ctx, "A");
+    Grouping grouping = distinctGrouping(scan->schema());
+    HashGroupOperator op(ctx, std::move(scan), std::move(grouping), frames.shares[0]);
     db.engine().pool().resetPeak();
     std::vector<int> got = ints(drain(op));
     CHECK(op.sortedPartitions() == 2);

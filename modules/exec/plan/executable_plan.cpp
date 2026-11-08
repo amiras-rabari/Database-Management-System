@@ -7,7 +7,8 @@
 
 #include "db/common/plan.h"
 #include "db/exec/frame_plan.h"
-#include "operators/hash_distinct.h"
+#include "operators/grouping.h"
+#include "operators/hash_group.h"
 #include "operators/pipelined.h"
 #include "sort/set_ops.h"
 #include "sort/sort_operator.h"
@@ -76,10 +77,23 @@ namespace db::exec
             case PlanOp::Distinct:
                 // The plan reader requires `mode` (DECISIONS 2026-11-01).
                 if (*node.mode == ExecMode::Hash)
-                    return std::make_unique<HashDistinctOperator>(
-                        ctx, buildNode(node.children[0], ctx, frames, labels), share);
+                {
+                    // Hash distinct = hash grouping on every column, no aggregates.
+                    std::unique_ptr<Operator> child = buildNode(node.children[0], ctx, frames, labels);
+                    Grouping grouping = distinctGrouping(child->schema());
+                    return std::make_unique<HashGroupOperator>(ctx, std::move(child), std::move(grouping), share);
+                }
                 return std::make_unique<DedupSortOperator>(
                     ctx, oneChild(buildNode(node.children[0], ctx, frames, labels)), share);
+            case PlanOp::GroupBy:
+            {
+                // Every name and type check happens in makeGrouping, now.
+                std::unique_ptr<Operator> child = buildNode(node.children[0], ctx, frames, labels);
+                Grouping grouping = makeGrouping(child->schema(), node.columns, node.aggregates);
+                if (*node.mode == ExecMode::Hash)
+                    return std::make_unique<HashGroupOperator>(ctx, std::move(child), std::move(grouping), share);
+                return std::make_unique<SortGroupByOperator>(ctx, std::move(child), std::move(grouping), share);
+            }
             case PlanOp::Union:
             case PlanOp::Intersect:
             case PlanOp::Except:
@@ -95,8 +109,7 @@ namespace db::exec
                 return std::make_unique<SetMergeOperator>(ctx, std::move(left), std::move(right), kind, share);
             }
 
-            // Written in chunks 09-13; each one replaces its line here.
-            case PlanOp::GroupBy:
+            // Written in chunks 11-13; each one replaces its line here.
             case PlanOp::NestedLoopJoin:
             case PlanOp::SortMergeJoin:
             case PlanOp::HashJoin:

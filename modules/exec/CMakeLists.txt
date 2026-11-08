@@ -10,7 +10,8 @@ add_library(db_exec STATIC
     join/hash_partitioner.cpp
     join/hashing.cpp
     join/tuple_hash_table.cpp
-    operators/hash_distinct.cpp
+    operators/hash_group.cpp
+    operators/grouping.cpp
     sort/set_ops.cpp
     sort/sort_operator.cpp
 )
@@ -27,6 +28,7 @@ add_executable(exec_tests
     tests/external_sort_tests.cpp
     tests/set_ops_tests.cpp
     tests/hash_distinct_tests.cpp
+    tests/group_by_tests.cpp
     tests/frame_plan_tests.cpp
     tests/operator_tests.cpp
     tests/pipelined_tests.cpp

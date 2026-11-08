@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 
 #include "db/common/error.h"
@@ -121,6 +123,37 @@ namespace db
         }
 
     } // namespace
+
+    std::string_view aggregateFunctionName(AggregateFunction function)
+    {
+        switch (function)
+        {
+            case AggregateFunction::Count:
+                return "count";
+            case AggregateFunction::Sum:
+                return "sum";
+            case AggregateFunction::Avg:
+                return "avg";
+            case AggregateFunction::Min:
+                return "min";
+            case AggregateFunction::Max:
+                return "max";
+        }
+        throw std::logic_error("aggregateFunctionName: unknown AggregateFunction value");
+    }
+
+    // Built from the spec's example (§M2.3): count(*) -> count_star,
+    // avg(R.salary) -> avg_R_salary. The dot becomes an underscore, so the
+    // name is one plain word that a bare reference finds.
+    std::string aggregateOutputName(const Aggregate& aggregate)
+    {
+        std::string name(aggregateFunctionName(aggregate.function));
+        if (!aggregate.column)
+            return name + "_star";
+        if (aggregate.column->qualifier)
+            name += "_" + *aggregate.column->qualifier;
+        return name + "_" + aggregate.column->name;
+    }
 
     std::string_view opName(PlanOp op)
     {

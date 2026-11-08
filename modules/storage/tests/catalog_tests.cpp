@@ -317,6 +317,13 @@ TEST_CASE("bad table names and schemas are rejected with Error(Schema) and chang
         catalog.createTable("D", Schema({Column{"R", "a", Type::Int, 0}, Column{"S", "a", Type::Int, 0}}));
     }) == ErrorCategory::Schema);
 
+    // REAL is only for AVG results and temporary runs (exec chunk 10), never
+    // a table column. A Schema may hold it, so createTable must refuse it.
+    const Schema withReal({Column{"", "k", Type::Int, 0}, Column{"", "avg", Type::Real, 0}});
+    CHECK(categoryOf([&] { catalog.createTable("A", withReal); }) == ErrorCategory::Schema);
+    CHECK(messageOf([&] { catalog.createTable("A", withReal); })
+          == "Column 'avg' of table 'A' is REAL; a table column must be INT or VARCHAR(n).");
+
     // VARCHAR(0) and VARCHAR(256) can never reach createTable: the Schema
     // itself refuses them.
     CHECK(categoryOf([] { Schema({Column{"", "v", Type::Varchar, 0}}); }) == ErrorCategory::Schema);
@@ -325,6 +332,7 @@ TEST_CASE("bad table names and schemas are rejected with Error(Schema) and chang
     CHECK(catalog.listTables() == std::vector<std::string>{"R"});
     CHECK_FALSE(fs::exists(dir.path() / "E.db"));
     CHECK_FALSE(fs::exists(dir.path() / "D.db"));
+    CHECK_FALSE(fs::exists(dir.path() / "A.db"));
     CHECK(fs::file_size(dir.path() / "catalog.db") == 0); // nothing saved yet
 }
 

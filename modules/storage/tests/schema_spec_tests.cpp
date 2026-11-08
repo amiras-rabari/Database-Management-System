@@ -81,6 +81,8 @@ TEST_CASE("schema spec: every error is Error(Schema) and names the item")
     const Case cases[] = {
         {"a", "Schema item 1 'a': missing ':'"},
         {"a:FLOAT", "Schema item 1 'a:FLOAT': unknown type 'FLOAT'"},
+        // REAL exists only for AVG results (exec chunk 10), never in a table.
+        {"a:INT,b:REAL", "Schema item 2 'b:REAL': unknown type 'REAL' (use INT or VARCHAR(n))"},
         {"a:INT,b:VARCHAR(0)", "Schema item 2 'b:VARCHAR(0)': VARCHAR length 0 must be 1 to 255"},
         {"a:VARCHAR(256)", "VARCHAR length 256 must be 1 to 255"},
         {"a:VARCHAR(-3)", "VARCHAR length -3 must be 1 to 255"},

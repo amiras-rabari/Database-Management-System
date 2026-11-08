@@ -9,6 +9,8 @@
 
 #include "catalog/catalog_format.h"
 #include "db/common/error.h"
+#include "db/common/schema.h"
+#include "db/common/value.h"
 #include "db/storage/heap_file.h"
 #include "db/storage/page_guard.h"
 #include "db/storage/slotted_page.h"
@@ -214,6 +216,15 @@ namespace db::storage
         // exists" and nothing changes.
         if (schema.size() == 0)
             throw Error(ErrorCategory::Schema, "Table '" + name + "' must have at least one column.");
+        // REAL exists only for AVG results and temporary runs (DECISIONS
+        // 2026-11-07); a table column is INT or VARCHAR(n). Without this the
+        // catalog file would save a REAL column as a VARCHAR.
+        for (const Column& column : schema.columns())
+        {
+            if (column.type == Type::Real)
+                throw Error(ErrorCategory::Schema, "Column '" + column.name + "' of table '" + name
+                                                       + "' is REAL; a table column must be INT or VARCHAR(n).");
+        }
 
         TableInfo info;
         info.name = name;

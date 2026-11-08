@@ -1,5 +1,6 @@
 #include "join/hashing.h"
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -56,6 +57,12 @@ namespace db::exec
             {
                 // Two's complement bits of the INT, as the record codec stores it.
                 hash = addLittleEndian(hash, static_cast<std::uint32_t>(value.asInt()), 4);
+            }
+            else if (value.type() == Type::Real)
+            {
+                // The double's 8 IEEE-754 bytes, as the record codec stores a
+                // REAL (an AVG result, e.g. distinct above a group_by).
+                hash = addLittleEndian(hash, std::bit_cast<std::uint64_t>(value.asReal()), 8);
             }
             else
             {

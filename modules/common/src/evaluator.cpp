@@ -6,6 +6,7 @@
 #include <variant>
 
 #include "db/common/error.h"
+#include "db/common/value.h"
 
 namespace db
 {
@@ -42,7 +43,9 @@ namespace db
                 node.op = condition.op;
                 node.left = bindOperand(condition.left, combined, leftSize, leftType);
                 node.right = bindOperand(condition.right, combined, leftSize, rightType);
-                if (leftType != rightType)
+                // Same rule as compareValues: INT with REAL is allowed
+                // (`avg_R_salary > 50000`), VARCHAR only with VARCHAR.
+                if (!typesComparable(leftType, rightType))
                 {
                     throw Error(ErrorCategory::Type, "Incompatible comparison operand types: " +
                                                          std::string(typeName(leftType)) + " and " +
