@@ -46,6 +46,16 @@ namespace db::exec
         // The child was already closed in doOpen. (If open stops with an
         // error, close is never reached; destroying the plan then releases
         // everything, chunk 01 RAII rule.)
+        if (sorter_)
+            stats_ = sorter_->stats();
         sorter_.reset();
+    }
+
+    PlanJson SortOperator::details() const
+    {
+        PlanJson details = PlanJson::object();
+        details["passes"] = stats_.passes;
+        details["initial_runs"] = stats_.initialRuns;
+        return details;
     }
 } // namespace db::exec

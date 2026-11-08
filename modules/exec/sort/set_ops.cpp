@@ -11,8 +11,9 @@
 #include "db/common/schema.h"
 #include "db/common/value.h"
 #include "db/exec/external_sort.h"
-#include "db/storage/temp_file.h"
-#include "sort/run_file.h"
+#include "db/exec/frame_plan.h"
+#include "db/exec/operator.h"
+#include "db/storage/storage_engine.h"
 
 namespace db::exec
 {
@@ -96,6 +97,11 @@ namespace db::exec
         // one before it is closed (chunk 03 runtime rule 1, like union_all).
         for (std::size_t i = 0; i < children().size(); ++i)
         {
+            // Union: the right input may need every frame while it opens (a
+            // join or a sort below it), so the left input's tuples still in
+            // pass 0's buffer are written as a run first.
+            if (i > 0)
+                sorter_->writeBufferedRun();
             child(i).open();
             Tuple t;
             while (child(i).next(t))
@@ -141,48 +147,52 @@ namespace db::exec
         setSchema(child(0).schema());
     }
 
-    storage::TempFile SetMergeOperator::sortInput(std::size_t i)
+    std::unique_ptr<ExternalSorter> sortToRuns(storage::StorageEngine& engine, Operator& input,
+                                               const std::vector<SortKey>& keys, const FrameShare& share,
+                                               std::size_t finalFrames, std::uint64_t& comparisons)
     {
-        // Each input is sorted with its own schema: only positions are
-        // compared later, so names and VARCHAR lengths may differ.
-        const Schema& schema = child(i).schema();
-        ExternalSorter sorter(ctx().engine(), schema, allColumnsAscending(schema), share_.ownFrames, share_.openFrames,
-                              share_.streamFrames, mutableCounters().comparisons);
-        child(i).open();
+        auto sorter = std::make_unique<ExternalSorter>(engine, input.schema(), keys, share.ownFrames,
+                                                       share.openFrames, finalFrames, comparisons);
+        input.open();
         Tuple t;
-        while (child(i).next(t))
-            sorter.add(t);
-        child(i).close();
-        // One run on disk; the sorter holds no frame after this.
-        return sorter.finishToRun();
+        while (input.next(t))
+            sorter->add(t);
+        input.close();
+        sorter->finishToRuns();
+        return sorter;
     }
 
     void SetMergeOperator::doOpen()
     {
         // Left first, then right: while the right input is sorted, the left
-        // one is only a file on disk and holds no frame (phase rule).
-        leftRun_ = sortInput(0);
-        rightRun_ = sortInput(1);
-
-        // The merge: one reader per run (2 frames), each starting on its
-        // first tuple.
-        leftReader_ = std::make_unique<RunReader>(ctx().engine(), *leftRun_, child(0).schema());
-        rightReader_ = std::make_unique<RunReader>(ctx().engine(), *rightRun_, child(1).schema());
-        hasLeft_ = leftReader_->next(leftHead_);
-        hasRight_ = rightReader_->next(rightHead_);
+        // one is only runs on disk and holds no frame (phase rule). Each
+        // input is sorted with its own schema: only positions are compared,
+        // so names and VARCHAR lengths may differ. The stream share is split
+        // between the two final merges, one frame per run read.
+        const std::size_t leftReaders = share_.streamFrames / 2;
+        const std::size_t rightReaders = share_.streamFrames - leftReaders;
+        std::uint64_t& comparisons = mutableCounters().comparisons;
+        leftSorter_ = sortToRuns(ctx().engine(), child(0), allColumnsAscending(child(0).schema()), share_,
+                                 leftReaders + 1, comparisons);
+        rightSorter_ = sortToRuns(ctx().engine(), child(1), allColumnsAscending(child(1).schema()), share_,
+                                  rightReaders + 1, comparisons);
+        leftSorter_->startFinalMerge();
+        rightSorter_->startFinalMerge();
+        hasLeft_ = leftSorter_->next(leftHead_);
+        hasRight_ = rightSorter_->next(rightHead_);
     }
 
     void SetMergeOperator::skipLeft(const Tuple& value)
     {
         do
-            hasLeft_ = leftReader_->next(leftHead_);
+            hasLeft_ = leftSorter_->next(leftHead_);
         while (hasLeft_ && compareRows(leftHead_, value, mutableCounters().comparisons) == 0);
     }
 
     void SetMergeOperator::skipRight(const Tuple& value)
     {
         do
-            hasRight_ = rightReader_->next(rightHead_);
+            hasRight_ = rightSorter_->next(rightHead_);
         while (hasRight_ && compareRows(rightHead_, value, mutableCounters().comparisons) == 0);
     }
 
@@ -233,10 +243,8 @@ namespace db::exec
 
     void SetMergeOperator::doClose()
     {
-        // Readers first (they may hold a pinned page), then the runs.
-        leftReader_.reset();
-        rightReader_.reset();
-        leftRun_.reset();
-        rightRun_.reset();
+        // Destroying a sorter closes its readers, then deletes its runs.
+        leftSorter_.reset();
+        rightSorter_.reset();
     }
 } // namespace db::exec

@@ -247,3 +247,49 @@ TEST_CASE("nested_loop_join: an output larger than both inputs completes at B = 
     CHECK(db.engine().liveTempFileCount() == 0);
     // TestDb's destructor checks that no page is left pinned.
 }
+
+TEST_CASE("nested_loop_join: a left-deep chain of three tables runs at B = 4 by writing the outer")
+{
+    // nested_loop_join(nested_loop_join(R, S), T) needs 5 frames if the lower
+    // join keeps streaming; at B = 4 the upper join writes the lower join's
+    // output to a run first, then reads it with 1 frame.
+    TestDb db("nlj_chain", 4);
+    db.createTable("R", rSchema("R"), rRows(300));
+    db.createTable("S", rSchema("S"), rRows(40));
+    db.createTable("T", rSchema("T"), rRows(30));
+    const std::string json = R"({"op": "nested_loop_join", "condition": "S.c < T.c", "left": )" +
+                             joinPlan("R.a < S.a") + R"(, "right": {"op": "seqscan", "table": "T"}})";
+
+    // Expected: pairs with R.a < S.a (a = i on both sides), then S.c < T.c.
+    std::size_t expected = 0;
+    const std::vector<Tuple> r = rRows(300), s = rRows(40), t = rRows(30);
+    for (const Tuple& rr : r)
+        for (const Tuple& ss : s)
+            if (rr[0].asInt() < ss[0].asInt())
+                for (const Tuple& tt : t)
+                    if (ss[2].asInt() < tt[2].asInt())
+                        ++expected;
+
+    const Result result = runPlan(db, json);
+    CHECK(result.rows.size() == expected);
+    CHECK(result.maxFrames <= 4);
+    CHECK(result.trace[0].counters.pageWrites > 0); // the outer was written
+    CHECK(db.engine().liveTempFileCount() == 0);
+}
+
+TEST_CASE("nested_loop_join: a sort as the inner is written once at B = 4, not redone per block")
+{
+    TestDb db("nlj_sort_inner", 4);
+    db.createTable("R", rSchema("R"), rRows(1200)); // 5 pages: 3 blocks of 2
+    db.createTable("S", rSchema("S"), rRows(500));  // 3 pages
+    const std::string json =
+        R"({"op": "nested_loop_join", "condition": "R.a = S.a", "left": {"op": "seqscan", "table": "R"},)"
+        R"( "right": {"op": "sort", "keys": [["S.a", "desc"]], "child": {"op": "seqscan", "table": "S"}}})";
+    const Result result = runPlan(db, json);
+    CHECK(result.rows.size() == 500);
+    CHECK(result.maxFrames <= 4);
+    // The sort ran once (its tuples_out = |S|), not once per block.
+    CHECK(result.trace[2].counters.tuplesOut == 500);
+    CHECK(result.trace[0].counters.comparisons == 1200 * 500);
+    CHECK(db.engine().liveTempFileCount() == 0);
+}

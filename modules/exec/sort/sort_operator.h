@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "db/common/plan.h"
+#include "db/common/plan_json.h"
 #include "db/common/schema.h"
 #include "db/exec/exec_context.h"
 #include "db/exec/external_sort.h"
@@ -37,11 +38,18 @@ namespace db::exec
         bool doNext(Tuple& out) override;
         void doClose() override;
 
+    public:
+        /// {"passes": ..., "initial_runs": ...} of the last run (§M2.6
+        /// measurement 2).
+        PlanJson details() const override;
+
     private:
         std::vector<SortKey> keys_;
         FrameShare share_;
         /// Exists only between open and close. Each open makes a new one (a
         /// nested loop reopens its inner input); resetting it deletes its runs.
         std::optional<ExternalSorter> sorter_;
+        /// The sorter's stats, kept when it is deleted at close.
+        SortStats stats_;
     };
 } // namespace db::exec

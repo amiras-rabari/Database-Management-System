@@ -21,8 +21,7 @@
 #include "db/exec/external_sort.h"
 #include "db/exec/frame_plan.h"
 #include "db/exec/operator.h"
-#include "db/storage/temp_file.h"
-#include "sort/run_file.h"
+#include "db/storage/storage_engine.h"
 
 namespace db::exec
 {
@@ -82,14 +81,28 @@ namespace db::exec
         bool hasLast_ = false;
     };
 
-    /// intersect and except. Each input is sorted on all columns into ONE
-    /// run on disk (ExternalSorter::finishToRun, Q2 (a)): first the left
-    /// input (then it is closed), then the right one. next() then walks the
-    /// two runs side by side with one reader each (2 frames):
+    /// For an operator that sorts two inputs and then merges them side by
+    /// side (intersect, except, sort-merge join): opens `input`, adds every
+    /// tuple to a new sorter on `keys`, closes `input`, then finishToRuns.
+    /// When it returns the sorter holds no frame (its runs are on disk), so
+    /// the other input can be sorted with all the frames; call
+    /// startFinalMerge() on both sorters afterwards. Frames: pass 0 runs of
+    /// share.ownFrames pages, merges of share.openFrames, a final merge of at
+    /// most finalFrames - 1 runs. Every comparison adds 1 to `comparisons`.
+    std::unique_ptr<ExternalSorter> sortToRuns(storage::StorageEngine& engine, Operator& input,
+                                               const std::vector<SortKey>& keys, const FrameShare& share,
+                                               std::size_t finalFrames, std::uint64_t& comparisons);
+
+    /// intersect and except. Each input is sorted on all columns
+    /// (sortToRuns): first the left input (then it is closed), then the
+    /// right one. Both sorts then stream their final merge side by side
+    /// into this operator's merge, so nothing is written beyond the sorts'
+    /// own runs (§M2.1):
     /// - intersect: a value on both sides is returned once;
     /// - except: a left value that is not on the right is returned once.
-    /// Cost: sort(M) + sort(N) + M + N reads of the two runs, like a
-    /// sort-merge join. Every head comparison counts 1, on top of the sorts'.
+    /// Cost: sort(M) + sort(N). Every head comparison counts 1, on top of
+    /// the sorts'. Frames while streaming: the stream share, split between
+    /// the two final merges (at least 1 run each).
     class SetMergeOperator : public Operator
     {
     public:
@@ -110,23 +123,16 @@ namespace db::exec
         void doClose() override;
 
     private:
-        /// Opens child `i`, sorts all of it into one run, closes it. When it
-        /// returns, nothing is pinned or reserved.
-        storage::TempFile sortInput(std::size_t i);
-        /// Moves the left (or right) reader past every tuple equal to `value`.
+        /// Moves the left (or right) sorter past every tuple equal to `value`.
         void skipLeft(const Tuple& value);
         void skipRight(const Tuple& value);
 
         Kind kind_;
         FrameShare share_;
-        /// The two sorted runs. Declared before the readers on purpose:
-        /// members are destroyed in reverse order, so the readers unpin
-        /// their pages before the runs are deleted.
-        std::optional<storage::TempFile> leftRun_;
-        std::optional<storage::TempFile> rightRun_;
-        /// One reader per run, its current (head) tuple, and whether it still has one.
-        std::unique_ptr<RunReader> leftReader_;
-        std::unique_ptr<RunReader> rightReader_;
+        /// The two sorts; they exist only between open and close.
+        std::unique_ptr<ExternalSorter> leftSorter_;
+        std::unique_ptr<ExternalSorter> rightSorter_;
+        /// Each sort's current (head) tuple, and whether it still has one.
         Tuple leftHead_;
         Tuple rightHead_;
         bool hasLeft_ = false;

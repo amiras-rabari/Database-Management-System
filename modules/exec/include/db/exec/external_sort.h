@@ -99,21 +99,28 @@ namespace db::exec
         /// full. A tuple too long for a page -> db::Error(Schema) (run files).
         void add(const Tuple& tuple);
 
+        /// Pass 0, between two inputs (union): writes the tuples kept so far
+        /// as a run now (nothing if there are none), so the sorter holds no
+        /// frame while its caller opens the next input (phase rule: a
+        /// blocking operator holds nothing while it opens a child). add()
+        /// may be called again afterwards.
+        void writeBufferedRun();
         /// The input has ended: writes the last run, does every merge pass
         /// but the last, and gets the final merge ready.
         void finishInput();
 
-        /// Instead of finishInput (never both): the input has ended; sort
-        /// everything into ONE run on disk and hand it over (materialize
-        /// mode, chunk 08 Q2 (a); intersect, except, and later sort-merge
-        /// join). The last run is always written, even a small one, and
-        /// merge passes go on until one run is left. When it returns, the
-        /// sorter holds no frame and no reader is open on the run, so the
-        /// caller can sort its other input with all the frames. next() must
-        /// not be called afterwards. An empty input gives an empty run
-        /// (0 pages). Example: 8 pages, runFrames 3, mergeFrames 4: runs 3,
-        /// 3, 2 (8 writes), one merge of fan-in 3 (8 reads, 8 writes): 2 passes.
-        storage::TempFile finishToRun();
+        /// Instead of finishInput, for an operator that sorts two inputs one
+        /// after the other and then merges them side by side (sort-merge
+        /// join, intersect, except). The input has ended: the last run is
+        /// always written, even a small one, and merge passes go on until
+        /// at most (finalFrames - 1) runs are left, exactly as finishInput.
+        /// But no reader is opened yet, so when it returns the sorter holds
+        /// no frame and the caller can sort its other input with all the
+        /// frames. Call startFinalMerge() once that is done, then next().
+        void finishToRuns();
+        /// After finishToRuns: opens the final merge (one reader per run,
+        /// at most finalFrames - 1 frames). It writes nothing.
+        void startFinalMerge();
 
         /// Fills `out` with the next tuple in sorted order and returns true,
         /// or returns false at the end.

@@ -140,8 +140,8 @@ namespace db::exec
     // ---------------------------------------------------------------- union_all
 
     UnionAllOperator::UnionAllOperator(ExecContext& ctx, std::unique_ptr<Operator> left,
-                                       std::unique_ptr<Operator> right)
-        : Operator(ctx, twoChildren(std::move(left), std::move(right)))
+                                       std::unique_ptr<Operator> right, const FrameShare& share)
+        : Operator(ctx, twoChildren(std::move(left), std::move(right))), share_(share)
     {
         checkUnionCompatible(child(0).schema(), child(1).schema(), "union_all");
         setSchema(child(0).schema()); // §M2.3: output takes the left input's names
@@ -150,6 +150,9 @@ namespace db::exec
     void UnionAllOperator::doOpen()
     {
         onRight_ = false;
+        // A right input too big to open later is written now, while it runs alone.
+        if (share_.writeInner)
+            rightRun_ = writeToRun(ctx().engine(), child(1));
         child(0).open(); // the right child waits until the left one is finished
     }
 
@@ -162,17 +165,24 @@ namespace db::exec
             // Left finished: close it first, so its frames are free before
             // the right child opens.
             child(0).close();
-            child(1).open();
+            if (rightRun_)
+                rightReader_ = std::make_unique<RunReader>(ctx().engine(), *rightRun_, child(1).schema());
+            else
+                child(1).open();
             onRight_ = true;
         }
         // Right tuples need no change: names live in the schema, not the tuple.
+        if (rightReader_)
+            return rightReader_->next(out);
         return child(1).next(out);
     }
 
     void UnionAllOperator::doClose()
     {
+        rightReader_.reset();
         child(0).close();
         child(1).close();
+        rightRun_.reset();
     }
 
     // ---------------------------------------------------------------- rename

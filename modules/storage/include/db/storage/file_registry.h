@@ -9,10 +9,12 @@
 /// That is why the one shared buffer pool names a page with two numbers:
 /// (FileId, PageId).
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <vector>
 
 #include "db/storage/disk_manager.h"
 
@@ -22,6 +24,11 @@ namespace db::storage
     /// order files are opened (0, 1, 2, ...) and never reused after a file is
     /// removed, so the same steps always give the same ids.
     using FileId = std::uint32_t;
+
+    /// At most this many files have an open stream at once. Windows allows
+    /// about 512 open files per program and Linux 1024 by default; a hash
+    /// join at B = 256 alone has 510 partition files. 256 stays below both.
+    inline constexpr std::size_t kMaxOpenFiles = 256;
 
     /// Owns the DiskManager of every open file. Everyone else only borrows a
     /// reference, which stays valid while the file is registered.
@@ -54,8 +61,11 @@ namespace db::storage
         /// True if `id` names an open file.
         bool contains(FileId id) const;
 
-        /// The disk manager for file `id`. Throws std::logic_error if `id`
-        /// is not registered.
+        /// The disk manager for file `id`, ready for a page call. If
+        /// kMaxOpenFiles files are already open and `id` is not one of them,
+        /// the least recently used one is closed first (its next page call
+        /// opens it again; nothing is counted). Throws std::logic_error if
+        /// `id` is not registered.
         /// Returns a mutable reference, allowing calling code to modify the underlying DiskManager
         DiskManager& disk(FileId id);
 
@@ -77,6 +87,8 @@ namespace db::storage
         /// path -> FileId of every open file, to spot "this path is already
         /// open". The keys are full, tidied-up paths (see pathKey).
         std::map<std::filesystem::path, FileId> idsByPath_;
+        /// The files that may have an open stream, least recently used first.
+        std::vector<FileId> openFiles_;
         /// The id the next open or create will hand out. same as std::uint32_t nextId = 0;
         FileId nextId_ = 0;
     };

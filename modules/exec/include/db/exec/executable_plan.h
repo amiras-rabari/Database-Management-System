@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "db/common/plan.h"
+#include "db/common/plan_json.h"
 #include "db/common/schema.h"
 #include "db/exec/counters.h"
 #include "db/exec/exec_context.h"
@@ -37,6 +38,8 @@ namespace db::exec
         /// This node plus every node below it. The text trace prints these
         /// page reads/writes (D1 (b)).
         ExecCounters subtree;
+        /// Operator::details(): an empty object for most operators.
+        PlanJson details;
 
         friend bool operator==(const TraceRow&, const TraceRow&) = default;
     };

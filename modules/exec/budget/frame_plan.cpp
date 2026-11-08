@@ -122,6 +122,19 @@ namespace db::exec
         /// and flows downward to the leaves.
 
 
+        // The stream need of a node that can write an input to a run
+        // (nested_loop_join, union_all): the need without writing if it still
+        // leaves at least 1 frame of B for a parent, else the need with the
+        // input written. A blocking parent gives its child exactly this
+        // minimum, so using the written form when it is not needed would make
+        // the child write its input at every B. Every parent needs at most 1
+        // frame beside a streaming child, or can write that child itself, so
+        // this never makes a plan miss B.
+        std::size_t writeOnlyIfNeeded(std::size_t withoutWriting, std::size_t withWriting, std::size_t frames)
+        {
+            return withoutWriting + 1 <= frames ? withoutWriting : withWriting;
+        }
+
         // Pass 1, Bottom-Up Analysis (Post-Order): needs[i] for every node of the subtree, where i
         // is the node's pre-order position. Children are finished before
         // the node, so their needs are known when the node's are computed.
@@ -157,9 +170,16 @@ namespace db::exec
                 break;
             case Kind::UnionAll:
                 // The right child is opened only after the left one is
-                // finished, during next(), so its whole need falls there.
-                need.open = needs[left].open;
-                need.stream = std::max(needs[left].stream, total(needs[right]));
+                // finished, during next(), so its whole need falls there. If
+                // that is more than the stream share, the right child is
+                // written to a run in open() instead (running alone: its open
+                // need, or its stream need + 1 writer page) and read with 1
+                // frame (FrameShare::writeInner). Writing is only planned when
+                // the unwritten form would leave no frame for a parent at this
+                // B (see writeOnlyIfNeeded).
+                need.open = std::max({needs[left].open, needs[right].open, 1 + needs[right].stream});
+                need.stream = writeOnlyIfNeeded(std::max(needs[left].stream, total(needs[right])),
+                                                needs[left].stream, frames);
                 break;
             case Kind::SortOne:
                 // Pass 0: a run of at least 1 page + the streaming child.
@@ -184,22 +204,34 @@ namespace db::exec
                     1 + std::max(needs[left].stream, needs[right].stream), std::size_t{3},
                     needs[left].open, needs[right].open
                 });
-                need.stream = 2;
+                // Merge: both sorts stream their final merge side by side, at
+                // least 1 run each = 2. sort_merge_join also keeps the current
+                // run of equal right keys in 1 page (it spills to a temp run
+                // when longer): 3, the spec's "3 for the merge" (§M2.4).
+                need.stream = node.op == PlanOp::SortMergeJoin ? 3 : 2;
                 break;
             case Kind::HashTwo:
                 // Partition each input in turn: at least 1 partition page +
-                // that streaming input. Probe: 1 table page + 1 reader page.
+                // that streaming input. Probe: 1 table page + 1 reader page;
+                // but a partition too big for its table is joined by block
+                // nested loop (chunk 13 Q1 (b)): a block of at least 1 page +
+                // a reader on each partition = 3.
                 need.open = std::max({
                     1 + std::max(needs[left].stream, needs[right].stream), needs[left].open,
                     needs[right].open
                 });
-                need.stream = 2;
+                need.stream = 3;
                 break;
             case Kind::NestedLoop:
-                // A block of at least 1 page + the streaming outer + the
-                // whole inner, which is reopened while the block is held.
-                need.open = needs[left].open;
-                need.stream = 1 + needs[left].stream + total(needs[right]);
+                // A block of at least 1 page + 1 frame for each input. An
+                // input that needs more is written to a temporary run first
+                // (FrameShare::writeOuter/writeInner), and then read with 1
+                // frame. Writing one happens in open(), with the input running
+                // alone: its open need, or its stream need + 1 writer page.
+                need.open = std::max({
+                    needs[left].open, 1 + needs[left].stream, needs[right].open, 1 + needs[right].stream
+                });
+                need.stream = writeOnlyIfNeeded(1 + needs[left].stream + total(needs[right]), 3, frames);
                 break;
             }
             need.subtreeSize = needs.size() - index;
@@ -232,11 +264,16 @@ namespace db::exec
                 assignShares(node.children[0], left, open, stream, needs, shares);
                 break;
             case Kind::UnionAll:
-                shares[index] = {open, stream, 0};
-                assignShares(node.children[0], left, open, stream, needs, shares);
-                // Opened during next(), so both of its halves come out of `stream`.
-                assignShares(node.children[1], right, stream, stream, needs, shares);
-                break;
+                {
+                    const bool writeRight = total(needs[right]) > stream;
+                    shares[index] = {open, stream, 0, false, writeRight};
+                    assignShares(node.children[0], left, open, stream, needs, shares);
+                    if (writeRight)
+                        assignShares(node.children[1], right, open, open - 1, needs, shares);
+                    else // opened during next(), so both of its halves come out of `stream`
+                        assignShares(node.children[1], right, stream, stream, needs, shares);
+                    break;
+                }
             case Kind::SortOne:
             case Kind::HashOne:
                 // Own frames while the child streams: pass 0's run, or the
@@ -258,11 +295,29 @@ namespace db::exec
             case Kind::NestedLoop:
                 {
                     // The block is what is left after the streaming outer and
-                    // the whole inner: B - 2 when both are seqscans (§M2.3).
-                    const std::size_t inner = total(needs[right]);
-                    shares[index] = {open, stream, stream - needs[left].stream - inner};
-                    assignShares(node.children[0], left, open, needs[left].stream, needs, shares);
-                    assignShares(node.children[1], right, inner, inner, needs, shares);
+                    // the whole inner (reopened while the block is held):
+                    // B - 2 when both are seqscans (§M2.3). If they do not fit
+                    // beside a block of 1 page, the inner is written to a run
+                    // first (it would be redone for every block otherwise),
+                    // then the outer if still needed; each is then read with
+                    // 1 frame. At a large B nothing is written.
+                    const std::size_t outerNeed = needs[left].stream;
+                    const std::size_t innerNeed = total(needs[right]);
+                    const bool writeInner = 1 + outerNeed + innerNeed > stream && innerNeed > 1;
+                    const std::size_t innerFrames = writeInner ? 1 : innerNeed;
+                    const bool writeOuter = 1 + outerNeed + innerFrames > stream && outerNeed > 1;
+                    const std::size_t outerFrames = writeOuter ? 1 : outerNeed;
+                    shares[index] = {open, stream, stream - outerFrames - innerFrames, writeOuter, writeInner};
+                    // A written input runs alone inside open(), streaming into
+                    // one writer page; otherwise it gets exactly its need.
+                    if (writeOuter)
+                        assignShares(node.children[0], left, open, open - 1, needs, shares);
+                    else
+                        assignShares(node.children[0], left, open, outerNeed, needs, shares);
+                    if (writeInner)
+                        assignShares(node.children[1], right, open, open - 1, needs, shares);
+                    else
+                        assignShares(node.children[1], right, innerNeed, innerNeed, needs, shares);
                     break;
                 }
             }

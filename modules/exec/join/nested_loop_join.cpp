@@ -9,13 +9,16 @@
 #include "db/common/schema.h"
 #include "db/exec/frame_plan.h"
 #include "db/exec/operator.h"
+#include "db/storage/storage_engine.h"
+#include "db/storage/temp_file.h"
+#include "sort/run_file.h"
 
 namespace db::exec
 {
     NestedLoopJoinOperator::NestedLoopJoinOperator(ExecContext& ctx, std::unique_ptr<Operator> left,
                                                    std::unique_ptr<Operator> right, const Condition& condition,
                                                    const FrameShare& share)
-        : Operator(ctx, twoChildren(std::move(left), std::move(right))),
+        : Operator(ctx, twoChildren(std::move(left), std::move(right))), share_(share),
           condition_(bindJoinCondition(condition, child(0).schema(), child(1).schema())),
           block_(ctx.pool(), child(0).schema(), share.ownFrames)
     {
@@ -24,14 +27,58 @@ namespace db::exec
 
     void NestedLoopJoinOperator::doOpen()
     {
-        // Only the outer is opened now. The inner is opened once per block,
-        // after that block is full (it holds no frame while the block fills).
-        child(0).open();
         block_.clear();
         hasCarry_ = false;
         outerDone_ = false;
         innerOpen_ = false;
         blockIndex_ = 0;
+
+        // An input that does not fit beside the block is written now, while
+        // it runs alone; the inner first (the outer is not open yet).
+        if (share_.writeInner)
+            innerRun_ = writeToRun(ctx().engine(), child(1));
+        if (share_.writeOuter)
+        {
+            outerRun_ = writeToRun(ctx().engine(), child(0));
+            outerReader_ = std::make_unique<RunReader>(ctx().engine(), *outerRun_, child(0).schema());
+        }
+        else
+        {
+            // The inner is opened once per block, after that block is full
+            // (it holds no frame while the block fills).
+            child(0).open();
+        }
+    }
+
+    bool NestedLoopJoinOperator::nextOuter(Tuple& out)
+    {
+        if (outerReader_)
+            return outerReader_->next(out);
+        return child(0).next(out);
+    }
+
+    bool NestedLoopJoinOperator::nextInner(Tuple& out)
+    {
+        if (innerRun_)
+            return innerReader_->next(out);
+        return child(1).next(out);
+    }
+
+    void NestedLoopJoinOperator::openInner()
+    {
+        if (innerRun_)
+            innerReader_ = std::make_unique<RunReader>(ctx().engine(), *innerRun_, child(1).schema());
+        else
+            child(1).open();
+        innerOpen_ = true;
+    }
+
+    void NestedLoopJoinOperator::closeInner()
+    {
+        // close() on a child that is already closed does nothing.
+        innerReader_.reset();
+        child(1).close();
+        innerOpen_ = false;
     }
 
     bool NestedLoopJoinOperator::fillBlock()
@@ -47,10 +94,11 @@ namespace db::exec
         Tuple t;
         while (!outerDone_)
         {
-            if (!child(0).next(t))
+            if (!nextOuter(t))
             {
                 // Close the outer as soon as it ends: its page goes back to the pool.
                 outerDone_ = true;
+                outerReader_.reset();
                 child(0).close();
                 break;
             }
@@ -75,18 +123,16 @@ namespace db::exec
             {
                 if (!fillBlock())
                     return false;
-                child(1).open();
-                innerOpen_ = true;
+                openInner();
                 blockIndex_ = block.size(); // no inner tuple yet: read one first
             }
             // inner_ has met every block tuple: take the next inner tuple. When
             // the inner ends, this block is done.
             if (blockIndex_ == block.size())
             {
-                if (!child(1).next(inner_))
+                if (!nextInner(inner_))
                 {
-                    child(1).close();
-                    innerOpen_ = false;
+                    closeInner();
                     continue;
                 }
                 blockIndex_ = 0;
@@ -107,10 +153,12 @@ namespace db::exec
 
     void NestedLoopJoinOperator::doClose()
     {
-        // close() on a child that is already closed does nothing.
-        child(1).close();
+        // Readers before runs: a reader may still hold a page of its run.
+        closeInner();
+        outerReader_.reset();
         child(0).close();
         block_.clear();
-        innerOpen_ = false;
+        innerRun_.reset();
+        outerRun_.reset();
     }
 } // namespace db::exec

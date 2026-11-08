@@ -61,14 +61,12 @@ namespace db::storage
         if (pages > kInvalidPageId)
             throw std::runtime_error("File " + quoted(path) + " has more pages than a page id can address.");
 
-        // NOTE : std::fstream type means an open file that can be both read and written, It closes
-        // itself when it goes out of scope.It can't be copied, which is why DiskManager can only be moved
-
-        std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary);
-        if (!file.is_open())
-            throw std::runtime_error("Cannot open file " + quoted(path) + ".");
-        // must move the file and hand ownership as again it can not be copied
-        return DiskManager(path, std::move(file), static_cast<PageId>(pages));
+        // Opened once now to report an unreadable file at once, then closed:
+        // the first page call opens it again (see the class comment).
+        DiskManager manager(path, static_cast<PageId>(pages));
+        manager.stream();
+        manager.closeFile();
+        return manager;
     }
 
     DiskManager DiskManager::create(const fs::path& path)
@@ -80,7 +78,8 @@ namespace db::storage
         std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
         if (!file.is_open())
             throw std::runtime_error("Cannot create file " + quoted(path) + ".");
-        return DiskManager(path, std::move(file), 0);
+        // `file` closes here; the first page call opens it again.
+        return DiskManager(path, 0);
     }
 
     const fs::path& DiskManager::path() const
@@ -100,17 +99,18 @@ namespace db::storage
             throw std::logic_error("readPage: page " + std::to_string(pageId) + " is not in file " + quoted(path_)
                                    + " (" + std::to_string(numPages_) + " pages)");
 
-        file_.seekg(byteOffset(pageId));
+        std::fstream& file = stream();
+        file.seekg(byteOffset(pageId));
         // char may alias any object, so viewing the std::byte buffer as char
         // for the stream is allowed (the reverse cast would not be).
         // reinterpret_cast<char*>(p) "Look at the same memory as a different type"
 
         // int can be used here as well for streamsize but explicitly casting gives much mor readability
         // and type safety for as it intel this is IO related type telling how many bytes to read from file
-        file_.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(kPageSize));
-        if (!file_ || file_.gcount() != static_cast<std::streamsize>(kPageSize))
+        file.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(kPageSize));
+        if (!file || file.gcount() != static_cast<std::streamsize>(kPageSize))
         {
-            file_.clear();
+            file.clear();
             throw std::runtime_error("Short read of page " + std::to_string(pageId) + " from file " + quoted(path_)
                                      + ".");
         }
@@ -126,23 +126,24 @@ namespace db::storage
 
         // seekp(): Stands for "seek put". It moves the file's internal write pointer (the "cursor")
         // to a specific position.
-        file_.seekp(byteOffset(pageId));
+        std::fstream& file = stream();
+        file.seekp(byteOffset(pageId));
 
         // bytes.data() grabs the raw memory pointer to the underlying buffer
         // and reinterpret_cast<const char*> says treat this raw binary memory buffer as a stream of
         // generic characters so we can write bytes safely
-        file_.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(kPageSize));
+        file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(kPageSize));
 
         // Flushed at once, so the file on disk always matches the counted calls.
         // flush ensures that Stop waiting and force all buffered data out of memory and
         // write it onto the physical disk right now
-        file_.flush();
+        file.flush();
 
-        //In C++, checking a file stream like an if statement (if (!file_)) checks the stream's error flags.
+        //In C++, checking a file stream like an if statement (if (!file)) checks the stream's error flags.
         //If the stream is in a "bad state"—meaning the write or the flush failed then it becomes true
-        if (!file_)
+        if (!file)
         {
-            file_.clear();
+            file.clear();
             throw std::runtime_error("Failed to write page " + std::to_string(pageId) + " of file " + quoted(path_)
                                      + ".");
         }
@@ -155,13 +156,14 @@ namespace db::storage
             throw std::runtime_error("File " + quoted(path_) + " is full: no page id left to allocate.");
 
         static constexpr std::array<char, kZeroBlockSize> zeros{};
-        file_.seekp(byteOffset(numPages_));
+        std::fstream& file = stream();
+        file.seekp(byteOffset(numPages_));
         for (std::size_t written = 0; written < kPageSize; written += zeros.size())
-            file_.write(zeros.data(), static_cast<std::streamsize>(zeros.size()));
-        file_.flush();
-        if (!file_)
+            file.write(zeros.data(), static_cast<std::streamsize>(zeros.size()));
+        file.flush();
+        if (!file)
         {
-            file_.clear();
+            file.clear();
             throw std::runtime_error("Failed to allocate page " + std::to_string(numPages_) + " in file "
                                      + quoted(path_) + ".");
         }
@@ -179,9 +181,32 @@ namespace db::storage
         return writes_;
     }
 
-    DiskManager::DiskManager(fs::path path, std::fstream file, PageId numPages)
-        : path_(std::move(path)), file_(std::move(file)), numPages_(numPages)
+    DiskManager::DiskManager(fs::path path, PageId numPages) : path_(std::move(path)), numPages_(numPages)
     {
+    }
+
+    std::fstream& DiskManager::stream()
+    {
+        if (!file_)
+        {
+            // std::fstream: a file that can be both read and written. It
+            // closes itself when it is destroyed (closeFile, or with us).
+            std::fstream file(path_, std::ios::in | std::ios::out | std::ios::binary);
+            if (!file.is_open())
+                throw std::runtime_error("Cannot open file " + quoted(path_) + ".");
+            file_ = std::move(file);
+        }
+        return *file_;
+    }
+
+    void DiskManager::closeFile()
+    {
+        file_.reset();
+    }
+
+    bool DiskManager::isOpen() const
+    {
+        return file_.has_value();
     }
 
 } // namespace db::storage

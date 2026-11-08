@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" font-family="sans-serif" font-size="12">
+<rect width="100%" height="100%" fill="white"/>
+<text x="260.0" y="22" font-size="14" text-anchor="middle">Join I/O, R = 60 pages, S = 30 pages, varying B</text>
+<line x1="70" y1="350" x2="490" y2="350" stroke="black"/>
+<line x1="70" y1="40" x2="70" y2="350" stroke="black"/>
+<text x="280.0" y="388" text-anchor="middle">B (frames)</text>
+<text x="16" y="195.0" transform="rotate(-90 16 195.0)" text-anchor="middle">page I/O (reads + writes, log scale)</text>
+<text x="70.0" y="366" text-anchor="middle">4</text>
+<text x="92.5" y="366" text-anchor="middle">5</text>
+<text x="110.9" y="366" text-anchor="middle">6</text>
+<text x="140.0" y="366" text-anchor="middle">8</text>
+<text x="180.9" y="366" text-anchor="middle">12</text>
+<text x="210.0" y="366" text-anchor="middle">16</text>
+<text x="250.9" y="366" text-anchor="middle">24</text>
+<text x="280.0" y="366" text-anchor="middle">32</text>
+<text x="320.9" y="366" text-anchor="middle">48</text>
+<text x="350.0" y="366" text-anchor="middle">64</text>
+<text x="420.0" y="366" text-anchor="middle">128</text>
+<text x="490.0" y="366" text-anchor="middle">256</text>
+<line x1="66" y1="340.1" x2="490" y2="340.1" stroke="#ddd"/>
+<text x="62" y="344.1" text-anchor="end">100</text>
+<line x1="66" y1="258.0" x2="490" y2="258.0" stroke="#ddd"/>
+<text x="62" y="262.0" text-anchor="end">200</text>
+<line x1="66" y1="149.5" x2="490" y2="149.5" stroke="#ddd"/>
+<text x="62" y="153.5" text-anchor="end">500</text>
+<line x1="66" y1="67.3" x2="490" y2="67.3" stroke="#ddd"/>
+<text x="62" y="71.3" text-anchor="end">1000</text>
+<polyline points="70.0,68.4 92.5,112.9 110.9,143.4 140.0,184.8 180.9,233.0 210.0,248.9 250.9,289.0 280.0,315.6 320.9,315.6 350.0,350.0 420.0,350.0 490.0,350.0" fill="none" stroke="#d62728" stroke-width="2"/>
+<circle cx="70.0" cy="68.4" r="3" fill="#d62728"/>
+<circle cx="92.5" cy="112.9" r="3" fill="#d62728"/>
+<circle cx="110.9" cy="143.4" r="3" fill="#d62728"/>
+<circle cx="140.0" cy="184.8" r="3" fill="#d62728"/>
+<circle cx="180.9" cy="233.0" r="3" fill="#d62728"/>
+<circle cx="210.0" cy="248.9" r="3" fill="#d62728"/>
+<circle cx="250.9" cy="289.0" r="3" fill="#d62728"/>
+<circle cx="280.0" cy="315.6" r="3" fill="#d62728"/>
+<circle cx="320.9" cy="315.6" r="3" fill="#d62728"/>
+<circle cx="350.0" cy="350.0" r="3" fill="#d62728"/>
+<circle cx="420.0" cy="350.0" r="3" fill="#d62728"/>
+<circle cx="490.0" cy="350.0" r="3" fill="#d62728"/>
+<rect x="505" y="40" width="12" height="12" fill="#d62728"/>
+<text x="522" y="51">BNL</text>
+<polyline points="70.0,96.3 92.5,139.7 110.9,169.0 140.0,169.0 180.9,233.5 210.0,234.4 250.9,234.4 280.0,234.4 320.9,234.4 350.0,234.9 420.0,234.9 490.0,234.9" fill="none" stroke="#1f77b4" stroke-width="2"/>
+<circle cx="70.0" cy="96.3" r="3" fill="#1f77b4"/>
+<circle cx="92.5" cy="139.7" r="3" fill="#1f77b4"/>
+<circle cx="110.9" cy="169.0" r="3" fill="#1f77b4"/>
+<circle cx="140.0" cy="169.0" r="3" fill="#1f77b4"/>
+<circle cx="180.9" cy="233.5" r="3" fill="#1f77b4"/>
+<circle cx="210.0" cy="234.4" r="3" fill="#1f77b4"/>
+<circle cx="250.9" cy="234.4" r="3" fill="#1f77b4"/>
+<circle cx="280.0" cy="234.4" r="3" fill="#1f77b4"/>
+<circle cx="320.9" cy="234.4" r="3" fill="#1f77b4"/>
+<circle cx="350.0" cy="234.9" r="3" fill="#1f77b4"/>
+<circle cx="420.0" cy="234.9" r="3" fill="#1f77b4"/>
+<circle cx="490.0" cy="234.9" r="3" fill="#1f77b4"/>
+<rect x="505" y="60" width="12" height="12" fill="#1f77b4"/>
+<text x="522" y="71">SMJ</text>
+<polyline points="70.0,129.8 92.5,171.8 110.9,182.6 140.0,201.2 180.9,214.0 210.0,206.9 250.9,201.6 280.0,209.2 320.9,183.9 350.0,185.1 420.0,127.9 490.0,54.8" fill="none" stroke="#2ca02c" stroke-width="2"/>
+<circle cx="70.0" cy="129.8" r="3" fill="#2ca02c"/>
+<circle cx="92.5" cy="171.8" r="3" fill="#2ca02c"/>
+<circle cx="110.9" cy="182.6" r="3" fill="#2ca02c"/>
+<circle cx="140.0" cy="201.2" r="3" fill="#2ca02c"/>
+<circle cx="180.9" cy="214.0" r="3" fill="#2ca02c"/>
+<circle cx="210.0" cy="206.9" r="3" fill="#2ca02c"/>
+<circle cx="250.9" cy="201.6" r="3" fill="#2ca02c"/>
+<circle cx="280.0" cy="209.2" r="3" fill="#2ca02c"/>
+<circle cx="320.9" cy="183.9" r="3" fill="#2ca02c"/>
+<circle cx="350.0" cy="185.1" r="3" fill="#2ca02c"/>
+<circle cx="420.0" cy="127.9" r="3" fill="#2ca02c"/>
+<circle cx="490.0" cy="54.8" r="3" fill="#2ca02c"/>
+<rect x="505" y="80" width="12" height="12" fill="#2ca02c"/>
+<text x="522" y="91">Hash</text>
+</svg>

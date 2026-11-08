@@ -36,6 +36,15 @@ namespace db::exec
         /// the nested loop block, the scan's one page. 0 for filter,
         /// project, limit, rename and union_all, which hold one tuple only.
         std::size_t ownFrames = 0;
+        /// nested_loop_join (both) and union_all (writeInner = its right
+        /// input). True when that input needs more frames than are left
+        /// while it streams: the operator then runs it alone in open(),
+        /// writes its rows to a temporary run, and reads that run with 1
+        /// frame (user's choice, chunk 11 follow-up), so every plan fits at
+        /// B = 4. Example at B = 4: nested_loop_join(nested_loop_join(R, S),
+        /// T) writes its outer input, which streams with 3 frames.
+        bool writeOuter = false;
+        bool writeInner = false;
 
         friend bool operator==(const FrameShare&, const FrameShare&) = default;
     };

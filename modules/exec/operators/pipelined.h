@@ -20,9 +20,12 @@
 #include "db/common/evaluator.h"
 #include "db/common/schema.h"
 #include "db/exec/exec_context.h"
+#include "db/exec/frame_plan.h"
 #include "db/exec/operator.h"
 #include "db/storage/heap_file.h"
 #include "db/storage/heap_scan.h"
+#include "db/storage/temp_file.h"
+#include "sort/run_file.h"
 
 namespace db::exec
 {
@@ -120,7 +123,12 @@ namespace db::exec
     class UnionAllOperator : public Operator
     {
     public:
-        UnionAllOperator(ExecContext& ctx, std::unique_ptr<Operator> left, std::unique_ptr<Operator> right);
+        /// With `share.writeInner` (the right input needs more frames than
+        /// the parent leaves while this streams), the right input is run
+        /// alone in open() and written to a temporary run, which is read
+        /// with 1 frame after the left input (so every plan fits at B = 4).
+        UnionAllOperator(ExecContext& ctx, std::unique_ptr<Operator> left, std::unique_ptr<Operator> right,
+                         const FrameShare& share);
 
     protected:
         void doOpen() override;
@@ -131,6 +139,12 @@ namespace db::exec
         ///   which input it's reading now. false while reading the left child,
         ///   true the left input is finished and closed, and it's reading the right one
         bool onRight_ = false;
+        FrameShare share_;
+        /// The written right input and its reader (writeInner only). The run
+        /// is declared first, so the reader unpins its page before the run
+        /// is deleted.
+        std::optional<storage::TempFile> rightRun_;
+        std::unique_ptr<RunReader> rightReader_;
     };
 
     /// The child's tuples unchanged, with every column requalified by

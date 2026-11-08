@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 
 #include "db/common/condition.h"
 #include "db/common/evaluator.h"
@@ -12,6 +13,8 @@
 #include "db/exec/frame_plan.h"
 #include "db/exec/operator.h"
 #include "db/exec/tuple_buffer.h"
+#include "db/storage/temp_file.h"
+#include "sort/run_file.h"
 
 namespace db::exec
 {
@@ -29,6 +32,13 @@ namespace db::exec
     ///
     /// The inner is closed and reopened for each block, so its own counters
     /// add up over every scan (its tuples_out = |S| * number of blocks).
+    ///
+    /// An input that needs more than the frames left beside the block (the
+    /// share's writeOuter / writeInner) is first run alone inside open() and
+    /// written to a temporary run; the join then reads that run with 1
+    /// frame, so every plan fits at B = 4 (chunk 11 follow-up, user's
+    /// choice). The run then counts as the input: M or N in the formula,
+    /// plus its one write.
     class NestedLoopJoinOperator : public Operator
     {
     public:
@@ -49,10 +59,26 @@ namespace db::exec
         /// the next one does not fit or the outer ends. Returns false if the
         /// block stays empty (the outer is used up: the join is done).
         bool fillBlock();
+        /// The next outer / inner tuple, from the child or from its run.
+        bool nextOuter(Tuple& out);
+        bool nextInner(Tuple& out);
+        /// Starts the inner again from its first tuple (a new scan of it).
+        void openInner();
+        void closeInner();
+
+        FrameShare share_;
 
         BoundCondition condition_;
         /// The outer block. Its pages are frames taken out of the pool.
         BoundedTupleBuffer block_;
+        /// The written inputs (writeOuter / writeInner), and a reader on each.
+        /// The runs are declared before the readers on purpose: members are
+        /// destroyed in reverse order, so a reader unpins its page before
+        /// its run is deleted.
+        std::optional<storage::TempFile> outerRun_;
+        std::optional<storage::TempFile> innerRun_;
+        std::unique_ptr<RunReader> outerReader_;
+        std::unique_ptr<RunReader> innerReader_;
         /// The outer tuple that did not fit in the last block; it starts the next one.
         Tuple carry_;
         bool hasCarry_ = false;

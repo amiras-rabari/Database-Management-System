@@ -2,8 +2,8 @@
 // (SPEC §M2.3). Choices tested here (exec STATUS.md, chunk 08):
 // - set semantics: every output tuple appears once (C20);
 // - union feeds both inputs into ONE sorter (Q1 (a));
-// - intersect and except sort each input to one run on disk with
-//   ExternalSorter::finishToRun, then merge the two runs (Q2 (a)).
+// - intersect and except sort each input (ExternalSorter::finishToRuns),
+//   then both sorts stream their final merge into one merge.
 // Tables are one INT column x unless a test says otherwise. A record is
 // 4 bytes, so a page holds floor(4088 / (4 + 4)) = 511 rows.
 
@@ -28,8 +28,6 @@
 #include "db/storage/heap_scan.h"
 #include "db/storage/io_stats.h"
 #include "db/storage/rid.h"
-#include "db/storage/temp_file.h"
-#include "sort/run_file.h"
 #include "tests/test_db.h"
 
 using namespace db;
@@ -89,60 +87,14 @@ namespace
     }
 } // namespace
 
-TEST_CASE("set ops: finishToRun leaves exactly one sorted run on disk and holds no frame")
+TEST_CASE("set ops: finishToRuns leaves the runs on disk, holds no frame, and merges later")
 {
-    // The spec's 8 pages, with the frames a root sort gets at B = 4: runs of
-    // 3 pages, merges of fan-in 3.
-    TestDb db("setops_finish_to_run");
+    // The spec's example (N = 8 pages, all frames 3): runs 3, 3, 2 (8
+    // writes); pass 1 merges until at most finalFrames - 1 = 2 runs are left
+    // (8 reads, 8 writes); then nothing is held until startFinalMerge, whose
+    // pass streams the last 2 runs (8 reads). 3 passes, as in §M2.3.
+    TestDb db("setops_finish_to_runs");
     db.createTable("R", rSchema(), rRows(1920)); // 8 data pages
-    db.coldPool();
-    const Schema schema = rSchema();
-    std::uint64_t comparisons = 0;
-    {
-        ExternalSorter sorter(db.engine(), schema, {SortKey{ColumnRef{"R", "a"}, false}}, 3, 4, 4, comparisons);
-        storage::HeapFile heap = db.engine().openHeapFile("R");
-        storage::HeapScan scan = heap.scan();
-        storage::Rid rid;
-        Tuple t;
-        while (scan.next(rid, t))
-            sorter.add(t);
-        scan.close();
-        const storage::IoStats start = db.engine().pool().stats();
-
-        // Pass 0 already wrote runs 1 and 2 (6 pages); finishToRun writes run
-        // 3 (2 pages), then one merge pass turns the 3 runs into 1 (8 reads,
-        // 8 writes). Nothing is left open on it.
-        storage::TempFile run = sorter.finishToRun();
-        CHECK(sorter.stats().initialRuns == 3);
-        CHECK(sorter.stats().passes == 2);
-        CHECK(run.numPages() == 8);
-        CHECK((db.engine().pool().stats() - start).reads == 8);
-        CHECK((db.engine().pool().stats() - start).writes == 2 + 8);
-        CHECK(db.engine().pool().pinnedFrameCount() == 0);
-        CHECK(db.engine().liveTempFileCount() == 1);
-
-        // Reading it back gives every row, largest a first: 8 more reads.
-        std::vector<Tuple> rows;
-        {
-            RunReader reader(db.engine(), run, schema);
-            while (reader.next(t))
-                rows.push_back(t);
-        }
-        std::vector<Tuple> expected = rRows(1920);
-        std::reverse(expected.begin(), expected.end());
-        CHECK(rows == expected);
-        CHECK((db.engine().pool().stats() - start).reads == 16);
-    }
-    CHECK(db.engine().liveTempFileCount() == 0);
-}
-
-TEST_CASE("set ops: finishToRun keeps merging until one run is left (fan-in 2)")
-{
-    // All frames 3: runs 3, 3, 2 -> pass 1 gives 2 runs -> pass 2 gives 1.
-    // Every pass writes all 8 pages. (Losing a run would not show in a test
-    // full of duplicates, so this one checks the page count and every row.)
-    TestDb db("setops_finish_two_passes");
-    db.createTable("R", rSchema(), rRows(1920));
     db.coldPool();
     const Schema schema = rSchema();
     std::uint64_t comparisons = 0;
@@ -156,28 +108,35 @@ TEST_CASE("set ops: finishToRun keeps merging until one run is left (fan-in 2)")
             sorter.add(t);
         scan.close();
     }
-    storage::TempFile run = sorter.finishToRun();
-    CHECK(sorter.stats().passes == 3);
-    CHECK(run.numPages() == 8);
-    CHECK(db.engine().pool().stats().writes == 8 + 8 + 8);
+    const storage::IoStats start = db.engine().pool().stats();
+    sorter.finishToRuns();
+    CHECK(sorter.stats().initialRuns == 3);
+    CHECK((db.engine().pool().stats() - start).reads == 8);
+    CHECK((db.engine().pool().stats() - start).writes == 2 + 8); // the last run of pass 0, then pass 1
+    CHECK(db.engine().pool().pinnedFrameCount() == 0);
+    CHECK(db.engine().liveTempFileCount() == 2);
+
+    sorter.startFinalMerge();
     std::vector<Tuple> rows;
-    {
-        RunReader reader(db.engine(), run, schema);
-        Tuple t;
-        while (reader.next(t))
-            rows.push_back(t);
-    }
+    Tuple t;
+    while (sorter.next(t))
+        rows.push_back(t);
     CHECK(rows == rRows(1920));
+    CHECK(sorter.stats().passes == 3);
+    CHECK((db.engine().pool().stats() - start).reads == 16);
+    CHECK((db.engine().pool().stats() - start).writes == 10);
 }
 
-TEST_CASE("set ops: finishToRun on an empty input gives an empty run")
+TEST_CASE("set ops: finishToRuns on an empty input writes nothing and returns nothing")
 {
     TestDb db("setops_finish_empty");
     const Schema schema = rSchema();
     std::uint64_t comparisons = 0;
     ExternalSorter sorter(db.engine(), schema, {SortKey{ColumnRef{"R", "a"}, true}}, 3, 4, 4, comparisons);
-    storage::TempFile run = sorter.finishToRun();
-    CHECK(run.numPages() == 0);
+    sorter.finishToRuns();
+    sorter.startFinalMerge();
+    Tuple t;
+    CHECK_FALSE(sorter.next(t));
     CHECK(sorter.stats().initialRuns == 0);
     CHECK(db.engine().pool().stats().writes == 0);
 }

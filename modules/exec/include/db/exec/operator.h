@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/common/plan_json.h"
 #include "db/common/schema.h"
 #include "db/exec/counters.h"
 #include "db/exec/exec_context.h"
@@ -86,6 +87,13 @@ namespace db::exec
         /// The columns of the tuples this operator returns. A parent binds
         /// its own column names against its child's schema().
         const Schema& schema() const { return schema_; }
+
+        /// Facts about the last run that the counters do not show, for the
+        /// JSON trace and the report (§M2.6): a sort's passes and initial
+        /// runs (measurement 2), a hash join's partition sizes and overflow
+        /// (measurement 4). An empty object for most operators. Still
+        /// readable after close().
+        virtual PlanJson details() const { return PlanJson::object(); }
 
     protected:
         // The operator's own work. Each operator writes these three; only

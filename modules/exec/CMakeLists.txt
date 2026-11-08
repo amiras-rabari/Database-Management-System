@@ -9,7 +9,10 @@ add_library(db_exec STATIC
     sort/run_file.cpp
     join/hash_partitioner.cpp
     join/hashing.cpp
+    join/hash_join.cpp
+    join/join_keys.cpp
     join/nested_loop_join.cpp
+    join/sort_merge_join.cpp
     join/tuple_hash_table.cpp
     operators/hash_group.cpp
     operators/grouping.cpp
@@ -31,6 +34,9 @@ add_executable(exec_tests
     tests/hash_distinct_tests.cpp
     tests/group_by_tests.cpp
     tests/nested_loop_join_tests.cpp
+    tests/sort_merge_join_tests.cpp
+    tests/hash_join_tests.cpp
+    tests/checklist_tests.cpp
     tests/frame_plan_tests.cpp
     tests/operator_tests.cpp
     tests/pipelined_tests.cpp

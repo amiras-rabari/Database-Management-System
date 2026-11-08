@@ -16,6 +16,7 @@
 #include "db/common/value.h"
 #include "db/exec/counters.h"
 #include "db/exec/exec_context.h"
+#include "db/exec/frame_plan.h"
 #include "db/exec/operator.h"
 #include "db/storage/io_stats.h"
 #include "operators/pipelined.h"
@@ -171,7 +172,7 @@ TEST_CASE("pipelined: union_all concatenates and takes the left names")
     db.createTable("D", Schema({{"D", "p", Type::Int, 0}}), {});
     ExecContext ctx(db.engine());
 
-    UnionAllOperator both(ctx, seqscan(ctx, "A"), seqscan(ctx, "B"));
+    UnionAllOperator both(ctx, seqscan(ctx, "A"), seqscan(ctx, "B"), FrameShare{});
     CHECK(both.schema().column(0).qualifiedName() == "A.a");
     CHECK(both.schema().column(1).qualifiedName() == "A.b");
     const std::vector<Tuple> rows = drain(both);
@@ -182,14 +183,14 @@ TEST_CASE("pipelined: union_all concatenates and takes the left names")
     // VARCHAR against INT in column 2, and 2 columns against 1.
     try
     {
-        UnionAllOperator bad(ctx, seqscan(ctx, "A"), seqscan(ctx, "C"));
+        UnionAllOperator bad(ctx, seqscan(ctx, "A"), seqscan(ctx, "C"), FrameShare{});
         FAIL("expected db::Error");
     }
     catch (const Error& e)
     {
         CHECK(e.category() == ErrorCategory::Schema);
     }
-    CHECK_THROWS_AS(UnionAllOperator(ctx, seqscan(ctx, "A"), seqscan(ctx, "D")), Error);
+    CHECK_THROWS_AS(UnionAllOperator(ctx, seqscan(ctx, "A"), seqscan(ctx, "D"), FrameShare{}), Error);
 }
 
 TEST_CASE("pipelined: seqscan of an unknown table is a name error at construction")
@@ -219,7 +220,7 @@ TEST_CASE("pipelined: an empty table through every operator gives END at once")
     plans.push_back(std::make_unique<FilterOperator>(ctx, seqscan(ctx, "E"), parseCondition("E.a > 1")));
     plans.push_back(std::make_unique<ProjectOperator>(ctx, seqscan(ctx, "E"), refs({"E.c"})));
     plans.push_back(std::make_unique<LimitOperator>(ctx, seqscan(ctx, "E"), 5));
-    plans.push_back(std::make_unique<UnionAllOperator>(ctx, seqscan(ctx, "E"), seqscan(ctx, "E")));
+    plans.push_back(std::make_unique<UnionAllOperator>(ctx, seqscan(ctx, "E"), seqscan(ctx, "E"), FrameShare{}));
     plans.push_back(std::make_unique<RenameOperator>(ctx, seqscan(ctx, "E"), "F"));
 
     for (const auto& plan : plans)

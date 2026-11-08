@@ -7,7 +7,9 @@
 
 #include "db/common/plan.h"
 #include "db/exec/frame_plan.h"
+#include "join/hash_join.h"
 #include "join/nested_loop_join.h"
+#include "join/sort_merge_join.h"
 #include "operators/grouping.h"
 #include "operators/hash_group.h"
 #include "operators/pipelined.h"
@@ -70,7 +72,7 @@ namespace db::exec
                 // (and labelled) first.
                 std::unique_ptr<Operator> left = buildNode(node.children[0], ctx, frames, labels);
                 std::unique_ptr<Operator> right = buildNode(node.children[1], ctx, frames, labels);
-                return std::make_unique<UnionAllOperator>(ctx, std::move(left), std::move(right));
+                return std::make_unique<UnionAllOperator>(ctx, std::move(left), std::move(right), share);
             }
             case PlanOp::Sort:
                 return std::make_unique<SortOperator>(ctx, buildNode(node.children[0], ctx, frames, labels),
@@ -119,9 +121,22 @@ namespace db::exec
                                                                 *node.condition, share);
             }
 
-            // Written in chunks 12-13; each one replaces its line here.
             case PlanOp::SortMergeJoin:
+            {
+                std::unique_ptr<Operator> left = buildNode(node.children[0], ctx, frames, labels);
+                std::unique_ptr<Operator> right = buildNode(node.children[1], ctx, frames, labels);
+                return std::make_unique<SortMergeJoinOperator>(ctx, std::move(left), std::move(right),
+                                                               *node.condition, share);
+            }
+
             case PlanOp::HashJoin:
+            {
+                std::unique_ptr<Operator> left = buildNode(node.children[0], ctx, frames, labels);
+                std::unique_ptr<Operator> right = buildNode(node.children[1], ctx, frames, labels);
+                return std::make_unique<HashJoinOperator>(ctx, std::move(left), std::move(right), *node.condition,
+                                                          share);
+            }
+
             // Logical ops never get here: divideFrames already rejected them.
             case PlanOp::Scan:
             case PlanOp::Select:
@@ -129,7 +144,7 @@ namespace db::exec
             case PlanOp::Cross:
                 break;
             }
-            throw std::logic_error("Operator '" + std::string(opName(node.op)) + "' is not built yet.");
+            throw std::logic_error("Operator '" + std::string(opName(node.op)) + "' is not a physical operator.");
         }
 
         // Adds one trace row for `op`, then for each child's subtree, left
@@ -138,7 +153,7 @@ namespace db::exec
         void addTraceRows(const Operator& op, std::size_t depth, const std::vector<std::string>& labels,
                           std::vector<TraceRow>& rows)
         {
-            rows.push_back({depth, labels[rows.size()], op.counters(), subtreeCounters(op)});
+            rows.push_back({depth, labels[rows.size()], op.counters(), subtreeCounters(op), op.details()});
             for (const std::unique_ptr<Operator>& child : op.children())
                 addTraceRows(*child, depth + 1, labels, rows);
         }

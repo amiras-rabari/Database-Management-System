@@ -100,4 +100,14 @@ namespace db::exec
             nextSlot_ = 0;
         }
     }
+    storage::TempFile writeToRun(storage::StorageEngine& engine, Operator& input)
+    {
+        RunWriter writer(engine, input.schema());
+        input.open();
+        Tuple t;
+        while (input.next(t))
+            writer.append(t);
+        input.close();
+        return writer.finish();
+    }
 } // namespace db::exec

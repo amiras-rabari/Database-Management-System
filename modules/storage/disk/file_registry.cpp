@@ -1,5 +1,6 @@
 #include "db/storage/file_registry.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -72,6 +73,19 @@ namespace db::storage
         const auto found = disks_.find(id);
         if (found == disks_.end())
             throw unknownFile("FileRegistry::disk", id);
+
+        // Keep openFiles_ in least-recently-used order: take `id` out (if it
+        // is there) and put it at the back.
+        const auto inList = std::find(openFiles_.begin(), openFiles_.end(), id);
+        if (inList != openFiles_.end())
+            openFiles_.erase(inList);
+        else if (openFiles_.size() == kMaxOpenFiles)
+        {
+            // A new file and no room: close the least recently used one.
+            disks_.at(openFiles_.front())->closeFile();
+            openFiles_.erase(openFiles_.begin());
+        }
+        openFiles_.push_back(id);
         //  found->second The Value (e.g., DiskManager)
         return *found->second;
     }
@@ -94,6 +108,7 @@ namespace db::storage
         // destroyed two lines below.
         const std::filesystem::path path = found->second->path();
         idsByPath_.erase(pathKey(path));
+        openFiles_.erase(std::remove(openFiles_.begin(), openFiles_.end(), id), openFiles_.end());
         // Destroying the DiskManager closes the file. It must be closed
         // before deleting, because Windows cannot delete an open file.
         // nextId_ does not go back down: ids are never reused.

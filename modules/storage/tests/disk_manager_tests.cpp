@@ -8,11 +8,13 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <doctest/doctest.h>
 
 #include "db/common/error.h"
 #include "db/storage/disk_manager.h"
+#include "db/storage/file_registry.h"
 #include "db/storage/page.h"
 
 namespace
@@ -233,4 +235,34 @@ TEST_CASE("a file whose size is not a multiple of 4096 is refused, naming the fi
     auto message = runtimeErrorFrom([&] { DiskManager::open(file); });
     REQUIRE(message.has_value());
     CHECK(message->find("bad.db") != std::string::npos);
+}
+
+TEST_CASE("600 files can be used at once: the registry keeps at most kMaxOpenFiles open")
+{
+    // More files than Windows lets a program open (about 512): a hash join
+    // at B = 256 keeps 510 partition files. Each file gets one page whose
+    // first byte is its number; reading them all back must find every byte.
+    TempDir dir("many_files");
+    db::storage::FileRegistry registry;
+    std::vector<db::storage::FileId> ids;
+    for (int i = 0; i < 600; ++i)
+    {
+        const db::storage::FileId id = registry.create(dir.path() / ("f" + std::to_string(i) + ".db"));
+        Page page = pattern();
+        page[0] = static_cast<std::byte>(i % 256);
+        DiskManager& disk = registry.disk(id);
+        disk.writePage(disk.allocatePage(), page);
+        ids.push_back(id);
+    }
+    for (int i = 0; i < 600; ++i)
+    {
+        Page page{};
+        registry.disk(ids[i]).readPage(0, page);
+        CHECK(page[0] == static_cast<std::byte>(i % 256));
+        CHECK(page[1] == pattern()[1]);
+    }
+    std::size_t open = 0;
+    for (db::storage::FileId id : ids)
+        open += registry.disk(id).isOpen() ? 1 : 0;
+    CHECK(open <= db::storage::kMaxOpenFiles);
 }

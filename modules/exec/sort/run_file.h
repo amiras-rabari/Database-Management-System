@@ -23,6 +23,7 @@
 #include "db/storage/page.h"
 #include "db/storage/page_guard.h"
 #include "db/storage/storage_engine.h"
+#include "db/exec/operator.h"
 #include "db/storage/temp_file.h"
 
 namespace db::exec
@@ -81,4 +82,9 @@ namespace db::exec
         storage::PageId nextPage_ = 0; // the page to pin after this one
         std::uint16_t nextSlot_ = 0; // the slot to read next on page_
     };
+    /// Runs `input` from open to close and writes every tuple to a new run:
+    /// 1 writer page beside the input's own frames. Used when an input does
+    /// not fit beside its parent's frames (nested_loop_join, union_all:
+    /// FrameShare::writeOuter / writeInner), so it runs alone instead.
+    storage::TempFile writeToRun(storage::StorageEngine& engine, Operator& input);
 } // namespace db::exec

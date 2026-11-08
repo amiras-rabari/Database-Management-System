@@ -96,6 +96,12 @@ namespace db::exec
         runs_.push_back(writer.finish());
     }
 
+    void ExternalSorter::writeBufferedRun()
+    {
+        if (buffer_.size() > 0)
+            writeBufferAsRun();
+    }
+
     void ExternalSorter::finishInput()
     {
         stats_.passes = 1; // pass 0
@@ -130,7 +136,7 @@ namespace db::exec
         ++stats_.passes;
     }
 
-    storage::TempFile ExternalSorter::finishToRun()
+    void ExternalSorter::finishToRuns()
     {
         stats_.passes = 1; // pass 0
         // No in-memory shortcut: the caller is about to give its frames to
@@ -138,18 +144,21 @@ namespace db::exec
         if (buffer_.size() > 0)
             writeBufferAsRun();
         stats_.initialRuns = runs_.size();
-        if (runs_.empty())
-            return RunWriter(engine_, schema_).finish(); // empty input: an empty run, no I/O
 
-        // Merge passes until one run is left (the rewrite variant, as above).
-        while (runs_.size() > 1)
+        // The same merge passes as finishInput (the rewrite variant).
+        while (runs_.size() > finalFrames_ - 1)
         {
             mergePass(mergeFrames_ - 1);
             ++stats_.passes;
         }
-        storage::TempFile run = std::move(runs_[0]);
-        runs_.clear();
-        return run;
+    }
+
+    void ExternalSorter::startFinalMerge()
+    {
+        // An empty input has no run and no final pass.
+        startMerge(0, runs_.size());
+        if (!runs_.empty())
+            ++stats_.passes;
     }
 
     bool ExternalSorter::next(Tuple& out)
