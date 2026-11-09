@@ -18,10 +18,12 @@ target_link_libraries(exec_cli_support PUBLIC db_exec nlohmann_json)
 add_executable(exec exec_main.cpp)
 target_link_libraries(exec PRIVATE exec_cli_support)
 
-# sql CLI (sql chunk 05): `sql parse`; chunk 12 adds compile and check.
+# sql CLI: `sql parse` (sql chunk 05), `compile` and `check` (chunk 12).
+# Storage is linked here, not in db_sql: the tool reads the catalog and hands
+# it to sql as a TableLookup.
 add_library(sql_cli_support STATIC sql_cli.cpp)
 target_include_directories(sql_cli_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(sql_cli_support PUBLIC db_sql)
+target_link_libraries(sql_cli_support PUBLIC db_sql db_storage)
 
 add_executable(sql sql_main.cpp)
 target_link_libraries(sql PRIVATE sql_cli_support)

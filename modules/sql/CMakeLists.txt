@@ -3,6 +3,9 @@ set(DB_SQL_SOURCES
     lexer/sql_lexer.cpp
     parser/sql_parser.cpp
     parser/explain_ast.cpp
+    semantic/checks.cpp
+    translate/translate.cpp
+    translate/compile.cpp
 )
 add_library(db_sql STATIC ${DB_SQL_SOURCES})
 target_include_directories(db_sql PUBLIC include)
@@ -20,6 +23,11 @@ add_executable(sql_tests
     tests/parser_condition_tests.cpp
     tests/parser_tests.cpp
     tests/explain_ast_tests.cpp
+    tests/resolution_tests.cpp
+    tests/checker_tests.cpp
+    tests/translate_block_tests.cpp
+    tests/translate_query_tests.cpp
+    tests/compile_tests.cpp
 )
 target_link_libraries(sql_tests PRIVATE db_sql doctest)
 # Tests may use the module's private headers (the parser's test hook).

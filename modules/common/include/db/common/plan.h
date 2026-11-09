@@ -42,14 +42,17 @@ namespace db
         /// Its child with duplicate tuples removed.
         Distinct,
 
-        // Physical only (exec SPEC §M2.3). Project, Distinct, Union,
+        // Used in both plan kinds: Sort, GroupBy, UnionAll and Limit below
+        // are logical ops too (sql SPEC §M3.5). Project, Distinct, Union,
         // Intersect, Except and Rename above are used in physical plans too.
+        // Physical only (exec SPEC §M2.3): SeqScan, Filter and the three joins.
 
         /// Reads a stored table page by page.
         SeqScan,
         /// Keeps the tuples of its child that satisfy a condition.
         Filter,
-        /// Its child in the order of the sort keys (external merge sort).
+        /// Its child in the order of the sort keys (physical: external merge
+        /// sort).
         Sort,
         /// One output tuple per group of equal key values, with aggregates.
         GroupBy,
@@ -67,9 +70,10 @@ namespace db
     };
 
     /// The name of an operation, as plan JSON spells it. Logical:
-    /// `scan select project join cross rename union intersect except
-    /// distinct`. Physical adds `seqscan filter sort group_by
-    /// nested_loop_join sort_merge_join hash_join union_all limit`.
+    /// `scan select project join cross rename group_by distinct sort limit
+    /// union union_all intersect except`. Physical: `seqscan filter project
+    /// distinct sort group_by nested_loop_join sort_merge_join hash_join
+    /// union_all union intersect except limit rename`.
     std::string_view opName(PlanOp op);
 
     /// How a physical distinct or group_by finds equal tuples: by sorting or
@@ -105,6 +109,12 @@ namespace db
     {
         AggregateFunction function = AggregateFunction::Count;
         std::optional<ColumnRef> column;
+        /// The output column's name in a LOGICAL plan: the SQL `AS` alias,
+        /// or aggregateOutputName when there is none (`n`, `count_star`).
+        /// Nodes above the group_by refer to it (`select "n > 5"`, example
+        /// 5.4). Empty in a physical plan, whose output names always come
+        /// from aggregateOutputName (opt maps one to the other).
+        std::string alias;
 
         friend bool operator==(const Aggregate&, const Aggregate&) = default;
     };
@@ -168,6 +178,17 @@ namespace db
         static PlanNode except(PlanNode left, PlanNode right);
         /// `child` without duplicate tuples.
         static PlanNode distinct(PlanNode child);
+        /// A logical group_by: one row per group of equal `keys` values
+        /// (no keys = one group for the whole input), then the `aggregates`
+        /// (each with its alias). No mode: the optimizer picks sort or hash.
+        static PlanNode groupBy(std::vector<ColumnRef> keys, std::vector<Aggregate> aggregates, PlanNode child);
+        /// `child` ordered by `keys`, most important first.
+        static PlanNode sort(std::vector<SortKey> keys, PlanNode child);
+        /// The first `count` tuples of `child` (0 or more).
+        static PlanNode limit(std::int32_t count, PlanNode child);
+        /// Every tuple of `left`, then every tuple of `right`; duplicates are
+        /// kept (SQL UNION ALL; `union` removes them, sql SPEC §M3.4).
+        static PlanNode unionAll(PlanNode left, PlanNode right);
     };
 
     /// True when both trees have the same shape, ops and node data (fields a
@@ -177,8 +198,11 @@ namespace db
 
     /// The plan on one line: `scan(R)`, `select[COND](CHILD)`,
     /// `project[a, b](CHILD)`, `rename[E2](CHILD)`, `join[COND](L, R)`,
-    /// `cross(L, R)`, `union(L, R)`, `intersect(L, R)`, `except(L, R)`,
-    /// `distinct(CHILD)`. Conditions print in `style`; column refs print as
+    /// `cross(L, R)`, `union(L, R)`, `union_all(L, R)`, `intersect(L, R)`,
+    /// `except(L, R)`, `distinct(CHILD)`,
+    /// `group_by[R.a; count(*) as n, avg(R.b) as m](CHILD)` (keys, then
+    /// aggregates with their aliases), `sort[n desc, R.a asc](CHILD)`,
+    /// `limit[10](CHILD)`. Conditions print in `style`; column refs print as
     /// written. Logical plans only: throws std::logic_error for a
     /// physical-only op or a node without its condition.
     std::string toString(const PlanNode& plan, ConditionStyle style = ConditionStyle::Plan);
@@ -196,9 +220,16 @@ namespace db
     ///   sides); the condition must bind with bindJoinCondition.
     /// - Cross: concatSchemas.
     /// - Rename: requalify with the alias.
-    /// - Union, Intersect, Except: the left schema, after
+    /// - Union, UnionAll, Intersect, Except: the left schema, after
     ///   checkUnionCompatible (Error(Schema)).
-    /// - Distinct: the child's schema.
+    /// - Distinct, Sort, Limit: the child's schema; every sort key must
+    ///   resolve in it (Schema::resolve: Name or Ambiguity).
+    /// - GroupBy: the key columns as they are in the child, then one column
+    ///   per aggregate, named by its alias with no qualifier. Types: count
+    ///   and sum INT, avg REAL, min and max the column's own type (with its
+    ///   VARCHAR length). Keys and aggregate columns must resolve in the
+    ///   child; sum or avg over a non-INT column is Error(Type); two output
+    ///   columns with the same name are Error(Schema).
     /// Logical plans only. Throws std::logic_error for a physical-only op or
     /// a malformed node (wrong number of children, missing condition).
     Schema outputSchema(const PlanNode& plan,

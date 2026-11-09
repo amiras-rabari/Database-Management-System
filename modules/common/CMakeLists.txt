@@ -75,6 +75,7 @@ add_executable(common_tests
     tests/ra_parser_tests.cpp
     tests/plan_json_tests.cpp
     tests/plan_json_physical_tests.cpp
+    tests/logical_plan_tests.cpp
     tests/value_real_tests.cpp
     tests/operator_tests.cpp
     tests/relation_loader_tests.cpp

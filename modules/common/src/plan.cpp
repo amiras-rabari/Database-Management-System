@@ -1,13 +1,17 @@
 #include "db/common/plan.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "db/common/error.h"
 #include "db/common/evaluator.h"
+#include "db/common/schema.h"
+#include "db/common/value.h"
 
 namespace db
 {
@@ -63,20 +67,17 @@ namespace db
         }
 
         // The ops that exist only in physical plans. toString and
-        // outputSchema below read logical plans only.
+        // outputSchema below read logical plans only. Sort, GroupBy,
+        // UnionAll and Limit are in both kinds (sql SPEC §M3.5).
         bool isPhysicalOnly(PlanOp op)
         {
             switch (op)
             {
                 case PlanOp::SeqScan:
                 case PlanOp::Filter:
-                case PlanOp::Sort:
-                case PlanOp::GroupBy:
                 case PlanOp::NestedLoopJoin:
                 case PlanOp::SortMergeJoin:
                 case PlanOp::HashJoin:
-                case PlanOp::UnionAll:
-                case PlanOp::Limit:
                     return true;
                 default:
                     return false;
@@ -120,6 +121,106 @@ namespace db
                 out += column.toString();
             }
             return out;
+        }
+
+        // `count(*) as n, avg(R.b) as m`: a group_by's aggregates for toString.
+        std::string aggregateList(const std::vector<Aggregate>& aggregates)
+        {
+            std::string out;
+            for (const Aggregate& aggregate : aggregates)
+            {
+                if (!out.empty())
+                {
+                    out += ", ";
+                }
+                out += std::string(aggregateFunctionName(aggregate.function)) + "(" +
+                       (aggregate.column ? aggregate.column->toString() : "*") + ") as " + aggregate.alias;
+            }
+            return out;
+        }
+
+        // `n desc, R.a asc`: a sort's keys for toString.
+        std::string sortKeyList(const std::vector<SortKey>& keys)
+        {
+            std::string out;
+            for (const SortKey& key : keys)
+            {
+                if (!out.empty())
+                {
+                    out += ", ";
+                }
+                out += key.column.toString() + (key.ascending ? " asc" : " desc");
+            }
+            return out;
+        }
+
+        // A column type as SQL writes it, for error messages: INT,
+        // VARCHAR(20), REAL.
+        std::string typeText(const Column& column)
+        {
+            switch (column.type)
+            {
+                case Type::Int:
+                    return "INT";
+                case Type::Varchar:
+                    return "VARCHAR(" + std::to_string(column.varcharLength) + ")";
+                case Type::Real:
+                    return "REAL";
+            }
+            throw std::logic_error("typeText: unknown Type value");
+        }
+
+        // The output schema of a logical group_by over a child with schema
+        // `input` (example 5.4: keys ["Emp.did"], aggregates count(*) as n and
+        // avg(Emp.salary) as avg_sal give Emp.did INT, n INT, avg_sal REAL).
+        Schema groupBySchema(const PlanNode& plan, const Schema& input)
+        {
+            std::vector<Column> columns;
+            // 1. The keys, copied from the child (qualified as they are there).
+            for (const ColumnRef& key : plan.columns)
+            {
+                columns.push_back(input.column(input.resolve(key)));
+            }
+            // 2. One column per aggregate. It has no qualifier: nodes above
+            //    name it by the alias alone (`n`), and a rename above
+            //    qualifies it (`t.n`, example 5.6).
+            for (const Aggregate& aggregate : plan.aggregates)
+            {
+                Column output{"", aggregate.alias, Type::Int, 0};
+                if (aggregate.column)
+                {
+                    const Column& argument = input.column(input.resolve(*aggregate.column));
+                    const bool needsInt =
+                        aggregate.function == AggregateFunction::Sum || aggregate.function == AggregateFunction::Avg;
+                    // sql §M3.3: "SUM and AVG require an INT column".
+                    if (needsInt && argument.type != Type::Int)
+                    {
+                        throw Error(ErrorCategory::Type, "Aggregate '" +
+                                                             std::string(aggregateFunctionName(aggregate.function)) +
+                                                             "' needs an INT column, but '" +
+                                                             argument.qualifiedName() + "' is " + typeText(argument) +
+                                                             ".");
+                    }
+                    // MIN and MAX return one of the input values, so they
+                    // keep its type and VARCHAR length.
+                    if (aggregate.function == AggregateFunction::Min || aggregate.function == AggregateFunction::Max)
+                    {
+                        output.type = argument.type;
+                        output.varcharLength = argument.varcharLength;
+                    }
+                }
+                // COUNT counts rows and SUM adds INTs: both INT (the Column
+                // default above). AVG divides, so its result is REAL (exec
+                // §M2.3, DECISIONS 2026-11-07 "REAL").
+                if (aggregate.function == AggregateFunction::Avg)
+                {
+                    output.type = Type::Real;
+                }
+                columns.push_back(output);
+            }
+            // The Schema constructor rejects two columns with one name
+            // (e.g. two aggregates both called n) with Error(Schema).
+            return Schema(std::move(columns));
         }
 
     } // namespace
@@ -262,6 +363,33 @@ namespace db
         return unary(PlanOp::Distinct, std::move(child));
     }
 
+    PlanNode PlanNode::groupBy(std::vector<ColumnRef> keys, std::vector<Aggregate> aggregates, PlanNode child)
+    {
+        PlanNode node = unary(PlanOp::GroupBy, std::move(child));
+        node.columns = std::move(keys);
+        node.aggregates = std::move(aggregates);
+        return node;
+    }
+
+    PlanNode PlanNode::sort(std::vector<SortKey> keys, PlanNode child)
+    {
+        PlanNode node = unary(PlanOp::Sort, std::move(child));
+        node.sortKeys = std::move(keys);
+        return node;
+    }
+
+    PlanNode PlanNode::limit(std::int32_t count, PlanNode child)
+    {
+        PlanNode node = unary(PlanOp::Limit, std::move(child));
+        node.limitCount = count;
+        return node;
+    }
+
+    PlanNode PlanNode::unionAll(PlanNode left, PlanNode right)
+    {
+        return binary(PlanOp::UnionAll, std::move(left), std::move(right));
+    }
+
     bool operator==(const PlanNode& left, const PlanNode& right)
     {
         if (left.op != right.op || left.children != right.children)
@@ -321,8 +449,20 @@ namespace db
             case PlanOp::Rename:
                 out += "[" + plan.alias + "]";
                 break;
+            case PlanOp::GroupBy:
+                // `;` separates the keys from the aggregates, so an empty
+                // list on either side is still visible: `group_by[; count(*) as n]`.
+                out += "[" + columnList(plan.columns) + "; " + aggregateList(plan.aggregates) + "]";
+                break;
+            case PlanOp::Sort:
+                out += "[" + sortKeyList(plan.sortKeys) + "]";
+                break;
+            case PlanOp::Limit:
+                out += "[" + std::to_string(plan.limitCount) + "]";
+                break;
             case PlanOp::Cross:
             case PlanOp::Union:
+            case PlanOp::UnionAll:
             case PlanOp::Intersect:
             case PlanOp::Except:
             case PlanOp::Distinct:
@@ -367,7 +507,17 @@ namespace db
             case PlanOp::Rename:
                 return requalify(first, plan.alias);
             case PlanOp::Distinct:
+            case PlanOp::Limit:
                 return first;
+            case PlanOp::Sort:
+                // Sorting changes the order only; each key must name a column.
+                for (const SortKey& key : plan.sortKeys)
+                {
+                    first.resolve(key.column);
+                }
+                return first;
+            case PlanOp::GroupBy:
+                return groupBySchema(plan, first);
             default:
                 break;
         }
@@ -384,6 +534,7 @@ namespace db
             case PlanOp::Cross:
                 return concatSchemas(first, second);
             case PlanOp::Union:
+            case PlanOp::UnionAll:
             case PlanOp::Intersect:
             case PlanOp::Except:
                 checkUnionCompatible(first, second, opName(plan.op));

@@ -85,10 +85,10 @@ TEST_CASE("a condition binds a REAL column against an INT literal, not a VARCHAR
 
 TEST_CASE("aggregate output names follow the spec's example")
 {
-    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Count, std::nullopt}) == "count_star");
-    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Avg, ColumnRef{"R", "salary"}}) == "avg_R_salary");
-    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Max, ColumnRef{"R", "name"}}) == "max_R_name");
-    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Sum, ColumnRef{std::nullopt, "a"}}) == "sum_a");
-    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Min, ColumnRef{"S", "b"}}) == "min_S_b");
-    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Count, ColumnRef{"R", "a"}}) == "count_R_a");
+    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Count, std::nullopt, ""}) == "count_star");
+    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Avg, ColumnRef{"R", "salary"}, ""}) == "avg_R_salary");
+    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Max, ColumnRef{"R", "name"}, ""}) == "max_R_name");
+    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Sum, ColumnRef{std::nullopt, "a"}, ""}) == "sum_a");
+    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Min, ColumnRef{"S", "b"}, ""}) == "min_S_b");
+    CHECK(db::aggregateOutputName(Aggregate{AggregateFunction::Count, ColumnRef{"R", "a"}, ""}) == "count_R_a");
 }

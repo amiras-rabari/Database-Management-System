@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -45,10 +48,14 @@ namespace db
         constexpr const char* kStar = "*"; // the column of count(*)
 
         // The ops each reader accepts. A logical op in a physical plan (or the
-        // other way round) is an unknown operator for that reader.
-        constexpr PlanOp kLogicalOps[] = {PlanOp::Scan,   PlanOp::Select, PlanOp::Project,   PlanOp::Join,
-                                          PlanOp::Cross,  PlanOp::Rename, PlanOp::Union,     PlanOp::Intersect,
-                                          PlanOp::Except, PlanOp::Distinct};
+        // other way round) is an unknown operator for that reader, so a
+        // logical plan can never name a physical algorithm (sql SPEC §M3.5).
+        // The logical list is §M3.5's: scan select project join cross rename
+        // group_by distinct sort limit union union_all intersect except.
+        constexpr PlanOp kLogicalOps[] = {PlanOp::Scan,     PlanOp::Select,  PlanOp::Project,  PlanOp::Join,
+                                          PlanOp::Cross,    PlanOp::Rename,  PlanOp::GroupBy,  PlanOp::Distinct,
+                                          PlanOp::Sort,     PlanOp::Limit,   PlanOp::Union,    PlanOp::UnionAll,
+                                          PlanOp::Intersect, PlanOp::Except};
         // Rename is our extension: a self-join needs two names for one table,
         // and the spec's physical list has no rename (DECISIONS.md 2026-11-01).
         constexpr PlanOp kPhysicalOps[] = {PlanOp::SeqScan,  PlanOp::Filter,         PlanOp::Project,
@@ -69,8 +76,8 @@ namespace db
         }
 
         // The fields of each op besides `op`, in the order they are written.
-        // Distinct is the one op whose fields differ between the two plan
-        // kinds: only the physical form has `mode`.
+        // Distinct and group_by are the ops whose fields differ between the
+        // two plan kinds: only the physical form has `mode`.
         std::vector<const char*> fieldsOf(PlanOp op, bool physical)
         {
             switch (op)
@@ -99,7 +106,11 @@ namespace db
                 case PlanOp::Sort:
                     return {kKeys, kChild};
                 case PlanOp::GroupBy:
-                    return {kMode, kKeys, kAggregates, kChild};
+                    if (physical)
+                    {
+                        return {kMode, kKeys, kAggregates, kChild};
+                    }
+                    return {kKeys, kAggregates, kChild};
                 case PlanOp::Limit:
                     return {kN, kChild};
                 case PlanOp::Cross:
@@ -215,7 +226,9 @@ namespace db
                 }
                 case PlanOp::GroupBy:
                 {
-                    // "keys": ["R.dept"], "aggregates": [["count", "*"], ["avg", "R.salary"]]
+                    // Physical: "keys": ["R.dept"], "aggregates": [["count", "*"], ["avg", "R.salary"]]
+                    // Logical (no mode): each aggregate adds its alias,
+                    // [["count", "*", "n"], ["avg", "Emp.salary", "avg_sal"]] (example 5.4).
                     PlanJson& keys = out[kKeys];
                     keys = PlanJson::array();
                     for (const ColumnRef& column : node.columns)
@@ -226,9 +239,13 @@ namespace db
                     aggregates = PlanJson::array();
                     for (const Aggregate& aggregate : node.aggregates)
                     {
-                        aggregates.push_back(PlanJson::array(
-                            {std::string(aggregateFunctionName(aggregate.function)),
-                             aggregate.column ? aggregate.column->toString() : kStar}));
+                        PlanJson entry = PlanJson::array({std::string(aggregateFunctionName(aggregate.function)),
+                                                          aggregate.column ? aggregate.column->toString() : kStar});
+                        if (!node.mode)
+                        {
+                            entry.push_back(aggregate.alias);
+                        }
+                        aggregates.push_back(entry);
                     }
                     writeNode(node.children[0], out[kChild]);
                     return;
@@ -426,22 +443,51 @@ namespace db
             return keys;
         }
 
-        // group_by's `aggregates`: an array of [function, column], where the
+        // A logical aggregate's alias: a bare name, so that a bare reference
+        // above the group_by (`n > 5`) can find it.
+        std::string readAlias(const std::string& text, const std::string& op)
+        {
+            const std::string invalid = nodePrefix(op) + "invalid alias '" + text + "'.";
+            std::vector<Token> tokens;
+            try
+            {
+                tokens = tokenize(text);
+            }
+            catch (const Error&)
+            {
+                fail(invalid);
+            }
+            if (tokens.size() != 2 || !detail::isNameToken(tokens[0].kind))
+            {
+                fail(invalid);
+            }
+            return tokens[0].text;
+        }
+
+        // group_by's `aggregates`: an array of [function, column] (physical)
+        // or [function, column, alias] (logical, example 5.4), where the
         // column may be "*" only for count. May be empty (group_by used as a
         // duplicate-free list of the keys).
-        std::vector<Aggregate> readAggregates(const PlanJson& json, const std::string& op)
+        std::vector<Aggregate> readAggregates(const PlanJson& json, const std::string& op, bool physical)
         {
             const PlanJson& value = json.at(kAggregates);
             if (!value.is_array())
             {
                 fail(nodePrefix(op) + "field 'aggregates' must be an array.");
             }
+            const std::size_t entrySize = physical ? 2 : 3;
             std::vector<Aggregate> aggregates;
             for (const PlanJson& item : value)
             {
-                if (!item.is_array() || item.size() != 2 || !item[0].is_string() || !item[1].is_string())
+                bool wellFormed = item.is_array() && item.size() == entrySize;
+                for (std::size_t i = 0; wellFormed && i < entrySize; ++i)
                 {
-                    fail(nodePrefix(op) + "each entry of 'aggregates' must be [function, column].");
+                    wellFormed = item[i].is_string();
+                }
+                if (!wellFormed)
+                {
+                    fail(nodePrefix(op) + (physical ? "each entry of 'aggregates' must be [function, column]."
+                                                    : "each entry of 'aggregates' must be [function, column, alias]."));
                 }
                 const std::string& name = item[0].get_ref<const std::string&>();
                 const std::string& column = item[1].get_ref<const std::string&>();
@@ -459,7 +505,7 @@ namespace db
                     fail(nodePrefix(op) + "unknown aggregate function '" + name + "'.");
                 }
 
-                Aggregate aggregate{*function, std::nullopt};
+                Aggregate aggregate{*function, std::nullopt, ""};
                 if (column == kStar)
                 {
                     if (*function != AggregateFunction::Count)
@@ -470,6 +516,10 @@ namespace db
                 else
                 {
                     aggregate.column = readColumn(column, op);
+                }
+                if (!physical)
+                {
+                    aggregate.alias = readAlias(item[2].get_ref<const std::string&>(), op);
                 }
                 aggregates.push_back(aggregate);
             }
@@ -591,9 +641,12 @@ namespace db
                     out.sortKeys = readSortKeys(json, op);
                     break;
                 case PlanOp::GroupBy:
-                    out.mode = readMode(json, op);
+                    if (physical)
+                    {
+                        out.mode = readMode(json, op);
+                    }
                     out.columns = readColumns(json, kKeys, op, true);
-                    out.aggregates = readAggregates(json, op);
+                    out.aggregates = readAggregates(json, op, physical);
                     break;
                 case PlanOp::Limit:
                     out.limitCount = readLimitCount(json, op);

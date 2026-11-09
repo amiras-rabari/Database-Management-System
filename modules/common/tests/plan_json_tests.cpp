@@ -246,7 +246,9 @@ TEST_CASE("fromJson rejects a plan that is not an object, or a node without a us
     checkRejected("[]", ErrorCategory::Schema, "Plan must be a JSON object.");
     checkRejected("{}", ErrorCategory::Schema, "Plan node is missing required field 'op'.");
     checkRejected(R"({"op":5})", ErrorCategory::Schema, "Plan node field 'op' must be a string.");
-    checkRejected(R"({"op":"sort","keys":[]})", ErrorCategory::Schema, "Unknown plan operator 'sort'.");
+    // Physical-only names (sort became a logical op too in sql chunk 06).
+    checkRejected(R"({"op":"hash_join","condition":"R.a = S.a"})", ErrorCategory::Schema,
+                  "Unknown plan operator 'hash_join'.");
     checkRejected(R"({"op":"seqscan","table":"R"})", ErrorCategory::Schema, "Unknown plan operator 'seqscan'.");
 }
 
