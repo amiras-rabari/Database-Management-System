@@ -16,7 +16,7 @@ Only the lectures that explain something we build, in the order we implement the
 | 3 | [#04 Database Storage II](https://www.youtube.com/watch?v=IHtVWGhG0Xg&list=PLSE8ODhjZXjYDBpQnSymaectKjxCy6BYq&index=5) | tuple layout and record format (vs log-structured storage): 02 record codec, 03 slotted page |
 | 4 | [#06 Memory Management](https://www.youtube.com/watch?v=aoewwZwVmv4&list=PLSE8ODhjZXjYDBpQnSymaectKjxCy6BYq&index=7) | buffer pool, pinning, dirty pages, LRU and CLOCK, sequential flooding: 04 replacement policies, 05 buffer pool, 06 page guard, 10 temp files, 15 trace, 16 report (trace 3) |
 
-## M2: exec (next)
+## M2: exec (done)
 
 | Order | Lecture                                                                                                                    | Explains (chunks)                                                                                                                                                |
 | ----- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -25,7 +25,7 @@ Only the lectures that explain something we build, in the order we implement the
 | 7     | [#07 Hash Tables](https://www.youtube.com/watch?v=VkP_yLM5KBU&list=PLSE8ODhjZXjYDBpQnSymaectKjxCy6BYq&index=8)             | hash functions and in-memory hash tables: 09 hash partitioning, 10 group by, 13 grace hash join                                                                  |
 | 8     | [#12 Join Algorithms](https://www.youtube.com/watch?v=MFazkaZKs1s&list=PLSE8ODhjZXjYDBpQnSymaectKjxCy6BYq&index=13)        | block nested loop, sort-merge and (grace) hash join and their I/O costs: 11 block nested loop, 12 sort-merge join, 13 grace hash join                            |
 
-## M3: sql
+## M3: sql (done)
 
 | Order | Lecture | Explains (chunks) |
 |---|---|---|
