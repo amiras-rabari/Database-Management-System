@@ -59,9 +59,11 @@ Every operator has the same interface (§M2.1): `open()`, `next(tuple) → true 
 ## 3. The rule for dividing B
 
 §M2.1 leaves the rule to Me. I have used a **phase rule**:
-- An operator holds frames only while it is working.
-- In each phase it gives every child that runs at the same time exactly that child's minimum, and keeps the rest for itself.
-- A child it opens while it holds nothing gets everything the operator has.
+- **Frame Lifetime:** An operator holds buffer pool frames only while actively executing.
+    
+- **Concurrent Children:** During any phase, an operator grants each concurrently running child strictly its minimum required frames, keeping the remaining frames for itself.
+    
+- **Exclusive Children:** If an operator opens a child while holding no active frame assignments, that child receives all frames available to the operator.
 
 Two runtime rules go with it:
 1. A child is opened only just before it is consumed, and closed as soon as it is used up.

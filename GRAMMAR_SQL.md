@@ -721,6 +721,12 @@ Examples (exact output of `sql parse`):
 | `SELECT a FROM R WHERE a != 1` | `error: lexical: unexpected character '!' at line 1, column 25` |
 | `SELECT a FROM R WHERE a > 12abc` | `error: lexical: number '12' runs straight into a letter at line 1, column 27` |
 
+The grammar accepts some statements that the checks after parsing refuse (`sql compile` / `sql check`, `DESIGN_M3.md`). One of them follows from the grammar directly: `select_item ::= ( column | aggregate ) [ AS ident ]` allows the same aggregate twice under two aliases, but a physical plan names both columns the same (`count_star`), and the executor refuses that, so it is a `schema` error:
+
+| Input | Error (exact output of `sql check`) |
+| --- | --- |
+| `SELECT COUNT(*) AS a, COUNT(*) AS b FROM Emp` | `error: schema: Aggregates 'a' and 'b' are the same aggregate (count_star); select it once. at line 1, column 23` |
+
 ## 9. Sanity Checks Against Required Test Cases
 
 The following results are decided by the grammar alone. Each can be reproduced with `sql parse --explain`, and most are also unit tests in `modules/sql/tests/` (parser, condition and explain tests):

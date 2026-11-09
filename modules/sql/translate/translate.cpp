@@ -211,6 +211,28 @@ namespace db::sql
             outputs.sortNames.push_back(std::move(sortName));
         }
 
+        // The same aggregate selected twice under two aliases
+        // (`COUNT(*) AS a, COUNT(*) AS b`) is a schema error. The logical
+        // plan could hold it, but a physical plan names an aggregate by
+        // common's rule only (both would be `count_star`), and exec refuses
+        // two columns with one name (§M2.1), so the plan could never run
+        // (§M3.10 "plans load and run"). Same reason as the duplicate output
+        // column rule above. DECISIONS 2026-11-09.
+        void refuseSameAggregate(const Grouping& grouping, const Aggregate& aggregate, SourcePos pos)
+        {
+            const std::string name = aggregateOutputName(aggregate);
+            for (const Aggregate& earlier : grouping.aggregates)
+            {
+                if (aggregateOutputName(earlier) == name)
+                {
+                    failAt(ErrorCategory::Schema,
+                           "Aggregates '" + earlier.alias + "' and '" + aggregate.alias + "' are the same aggregate (" +
+                               name + "); select it once.",
+                           pos);
+                }
+            }
+        }
+
         // The select list (§M3.5 step 5's columns). `grouping` is set for an
         // aggregating block: then each plain column must be a grouping
         // column (case 6), and each aggregate becomes a group_by entry named
@@ -251,8 +273,9 @@ namespace db::sql
                 Type type = Type::Int;
                 Aggregate aggregate = checkAggregate(call, scope, type);
                 aggregate.alias = alias.empty() ? aggregateOutputName(aggregate) : alias;
-                grouping->aggregates.push_back(aggregate);
                 addOutput(outputs, ColumnRef{std::nullopt, aggregate.alias}, aggregate.alias, call.pos);
+                refuseSameAggregate(*grouping, aggregate, call.pos);
+                grouping->aggregates.push_back(aggregate);
             }
         }
 

@@ -128,18 +128,24 @@ Further rules:
 ## 4. Type and aggregate checks
 
 **Types (§3.2):**
-| Rule | Error |
-|---|---|
-| A comparison needs two values of the same type, `=` included. INT with AVG's REAL is allowed (both are numbers). | `type: Incompatible comparison operand types: INT and VARCHAR.` (`age > '30'`, required case 10) |
-| SUM and AVG need an INT column. COUNT accepts anything; MIN and MAX accept either type. | `type: Aggregate 'avg' needs an INT column, but 'Emp.name' is VARCHAR(20).` |
-| `*` only in COUNT. | `type: Only COUNT may use '*', not SUM(*).` |
-| Set operators: same number of columns and the same type in each position. Names may differ; the result takes the left side's names. | `schema: Relation schemas are not union-compatible for 'union': column 1 is VARCHAR on the left but INT on the right.` at the operator (required case 14) |
+|                       Rule                              |               Error                                    |
+|-----------------------------------------|---------------------------------------- |
+| A comparison needs two values of the same type, `=` included. INT with AVG's REAL is allowed (both are numbers). | `type: Incompatible comparison operand types: INT and VARCHAR.` (`age > '30'`, required case 10) 
+
+| SUM and AVG need an INT column. COUNT accepts anything; MIN and MAX accept either type. | `type: Aggregate 'avg' needs an INT column, but 'Emp.name' is VARCHAR(20).` 
+
+| `*` only in COUNT. | `type: Only COUNT may use '*', not SUM(*).` 
+
+| Set operators: same number of columns and the same type in each position. Names may differ; the result takes the left side's names. | `schema: Relation schemas are not union-compatible for 'union': column 1 is VARCHAR on the left but INT on the right.` at the operator (required case 14) 
 
 **Aggregates (§3.1):** a query is *aggregating* if it has a GROUP BY or an aggregate in its select list. Then:
-| Rule | Error |
-|---|---|
-| The select list may hold only grouping columns and aggregates. | `aggregate: Column 'Emp.name' must appear in GROUP BY or be used in an aggregate.` (required case 6) |
-| HAVING may use only grouping columns and aggregates. | the same message, at the column in HAVING |
+|                       Rule                              |               Error                                    |
+|-----------------------------------------|---------------------------------------- |
+
+| The select list may hold only grouping columns and aggregates. | `aggregate: Column 'Emp.name' must appear in GROUP BY or be used in an aggregate.` (required case 6) 
+
+| HAVING may use only grouping columns and aggregates. | the same message, at the column in HAVING 
+
 | No aggregate in WHERE (or ON): they run before grouping. | `aggregate: Aggregate COUNT(*) is not allowed in WHERE or ON: they run before grouping.` (required case 7) |
 
 `SELECT COUNT(*) FROM Emp` with no GROUP BY is aggregating: `group_by` with no keys. That gives one row, even on an empty table (required case 13; exec's group_by test checks the empty-table half).
@@ -195,7 +201,7 @@ WHERE sits below the grouping and HAVING above it (required case 5).
 
 The catalog reaches sql only through `TableLookup`, a function from a table name to its schema. So the `db_sql` library does not link storage; the `sql` tool and the shell pass in a lookup over storage's catalog.
 
-`sql compile` and `sql check` read a whole file but execute nothing. A SELECT on a table created earlier **in the same file** is therefore "Unknown table" there. The shell runs one statement at a time, so a CREATE is visible to the next statement.
+`sql compile` and `sql check` read a whole file but execute nothing. A SELECT on a table created earlier **in the same file** is therefore "Unknown table" there cause the script has not ran yet and hence table does not exist. The shell runs one statement at a time, so a CREATE is visible to the next statement.
 
 **Commands (§M3.7):**
 ```
@@ -217,6 +223,7 @@ sql check   --db DIR --file q.sql            # errors only
 | Column alias (`name AS n`) | Used only by ORDER BY; the plan writes `Emp.name` (D4) | The logical `project` has only `columns`, no alias field. |
 | ON scope | Only the tables joined so far (D5) | The condition belongs to its own `join` node. |
 | Duplicate output column (`SELECT name, name`) | `schema: Duplicate output column 'Emp.name'.` | Exec refuses such a schema too. |
+| Same aggregate under two aliases (`COUNT(*) AS a, COUNT(*) AS b`) | `schema: Aggregates 'a' and 'b' are the same aggregate (count_star); select it once.` | A physical plan names both `count_star`, which exec refuses, so the plan could never run (§M3.10). PostgreSQL accepts it and returns two columns. |
 | Plan depth | The parser allows 1000 SQL levels; the finished plan must also fit common's 1000-level limit, else `syntax: Query nested too deep: its plan has more than 1000 levels.` | One subquery is 2 plan levels (rename + project). Without this check a 500-deep query gave JSON that opt and exec refuse, and a 1000-deep one crashed `sql compile`. |
 | Exit codes | 0 / 1 / 2 / 3 as in section 6 | Same as the storage and exec tools. |
 

@@ -97,9 +97,15 @@ TEST_CASE("checks: duplicate output columns are refused, as in exec (decision (a
                18);
     checkError("SELECT COUNT(*) AS n, SUM(age) AS n FROM Emp", ErrorCategory::Schema,
                "Duplicate output column 'n'.", 23);
-    // Two aliases of one aggregate are two output columns.
-    CHECK(planText("SELECT COUNT(*) AS a, COUNT(*) AS b FROM Emp") ==
-          "project[a, b](group_by[; count(*) as a, count(*) as b](scan(Emp)))");
+    // One aggregate under two aliases: the physical plan names both
+    // `count_star`, which exec refuses as a duplicate column, so sql refuses
+    // it here (DECISIONS 2026-11-09). Different aggregates are fine.
+    checkError("SELECT COUNT(*) AS a, COUNT(*) AS b FROM Emp", ErrorCategory::Schema,
+               "Aggregates 'a' and 'b' are the same aggregate (count_star); select it once.", 23);
+    checkError("SELECT did, MAX(age) AS x, MAX(Emp.age) AS y FROM Emp GROUP BY did", ErrorCategory::Schema,
+               "Aggregates 'x' and 'y' are the same aggregate (max_Emp_age); select it once.", 28);
+    CHECK(planText("SELECT COUNT(*) AS a, MAX(age) AS b FROM Emp") ==
+          "project[a, b](group_by[; count(*) as a, max(Emp.age) as b](scan(Emp)))");
 }
 
 TEST_CASE("checks: ORDER BY looks at output aliases first, then FROM (§M3.3, D3, D4)")
