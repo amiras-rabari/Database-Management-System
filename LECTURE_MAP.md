@@ -1,6 +1,6 @@
 # Lecture map: CMU 15-445/645 Intro to Database Systems (Fall 2024)
 
-Only the lectures that explain something we build, in the order we implement the modules: common (Phase 0) → storage (M1) → exec (M2) → sql (M3) → opt (M4) → shell. Watch the lecture, build or review its chunks, then go over the code with `/teach-code`. Source: the official course schedule, https://15445.courses.cs.cmu.edu/fall2024/schedule.html (slides and notes are linked there too).
+The lectures that explain something I build, in the order I implement the modules: common (Phase 0) → storage (M1) → exec (M2) → sql (M3) → opt (M4) → shell. Goal is to watch the lecture, build or review its chunks, then go over the code with .  Source: the official course schedule, https://15445.courses.cs.cmu.edu/fall2024/schedule.html .
 
 ## Phase 0: common (done)
 
@@ -31,13 +31,13 @@ Only the lectures that explain something we build, in the order we implement the
 |---|---|---|
 | 9 | [#02 Modern SQL](https://www.youtube.com/watch?v=MzigBKf84aY&list=PLSE8ODhjZXjYDBpQnSymaectKjxCy6BYq&index=3) | the SQL we accept and what it means: 04 statements, 08 type and aggregate checks, 10 subqueries and set ops, 11 DDL and DML. Rewatch #01 before 06 common logical ops and 09 translate select block (SQL → relational algebra). |
 
-The lexer and parser (chunks 01–05) are not covered by the course; read *Crafting Interpreters*, chapters "Scanning" and "Parsing Expressions" (hand-written recursive descent, as our rules require).
+The lexer and parser (chunks 01–05) were not covered by the course; read *Crafting Interpreters*, chapters "Scanning" and "Parsing Expressions" (hand-written recursive descent).
 
 ## M4: opt
 
-| Order | Lecture | Explains (chunks) |
-|---|---|---|
-| 10 | [#15 Query Planning & Optimization](https://www.youtube.com/watch?v=X8EHO8VLeG0&list=PLSE8ODhjZXjYDBpQnSymaectKjxCy6BYq&index=16) | statistics, histograms, selectivity, rewrite rules, cost model, dynamic-programming join ordering: all of opt 01–13. Rewatch #11 (histograms are built with the external sort, 02–03) and #12 (join cost formulas, 09). |
+| Order | Lecture                                                                                                                           | Explains (chunks)                                                                                                                                                                                                       |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10    | [#15 Query Planning & Optimization](https://www.youtube.com/watch?v=X8EHO8VLeG0&list=PLSE8ODhjZXjYDBpQnSymaectKjxCy6BYq&index=16) | statistics, histograms, selectivity, rewrite rules, cost model, dynamic-programming join ordering: all of opt 01–13. Rewatch #11 (histograms are built with the external sort, 02–03) and #12 (join cost formulas, 09). |
 
 ## Shell
 
