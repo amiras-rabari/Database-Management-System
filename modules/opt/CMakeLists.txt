@@ -1,6 +1,7 @@
 # --- db_opt: the query optimizer (statistics, estimates, rewrites, DP) -------
 set(DB_OPT_SOURCES
     stats/statistics.cpp
+    stats/histogram.cpp
 )
 add_library(db_opt STATIC ${DB_OPT_SOURCES})
 target_include_directories(db_opt PUBLIC include)
@@ -13,6 +14,7 @@ target_link_libraries(db_opt PUBLIC db_exec db_storage db_common)
 add_executable(opt_tests
     tests/test_main.cpp
     tests/statistics_tests.cpp
+    tests/histogram_tests.cpp
 )
 target_link_libraries(opt_tests PRIVATE db_opt doctest)
 
