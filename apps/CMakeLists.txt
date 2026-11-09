@@ -18,6 +18,14 @@ target_link_libraries(exec_cli_support PUBLIC db_exec nlohmann_json)
 add_executable(exec exec_main.cpp)
 target_link_libraries(exec PRIVATE exec_cli_support)
 
+# sql CLI (sql chunk 05): `sql parse`; chunk 12 adds compile and check.
+add_library(sql_cli_support STATIC sql_cli.cpp)
+target_include_directories(sql_cli_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(sql_cli_support PUBLIC db_sql)
+
+add_executable(sql sql_main.cpp)
+target_link_libraries(sql PRIVATE sql_cli_support)
+
 # --- Tests ------------------------------------------------------------------
 add_executable(storage_cli_tests
     tests/test_main.cpp
@@ -36,3 +44,12 @@ target_link_libraries(exec_cli_tests PRIVATE exec_cli_support doctest)
 
 add_test(NAME exec_cli_tests COMMAND exec_cli_tests)
 set_tests_properties(exec_cli_tests PROPERTIES TIMEOUT 60)
+
+add_executable(sql_cli_tests
+    tests/test_main.cpp
+    tests/sql_cli_tests.cpp
+)
+target_link_libraries(sql_cli_tests PRIVATE sql_cli_support doctest)
+
+add_test(NAME sql_cli_tests COMMAND sql_cli_tests)
+set_tests_properties(sql_cli_tests PROPERTIES TIMEOUT 60)

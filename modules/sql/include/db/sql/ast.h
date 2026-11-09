@@ -82,7 +82,9 @@ namespace db::sql
     /// A condition tree (WHERE, ON, HAVING), shaped like common's Condition
     /// but with positions and aggregate operands.
     /// - Compare: `left op right`; `children` is empty.
-    /// - And / Or: two or more `children`; `left`, `right`, `op` unused.
+    /// - And / Or: exactly two `children`; `left`, `right`, `op` unused.
+    ///   A chain nests to the left: `a AND b AND c` is And(And(a, b), c),
+    ///   the same shape as common's andOf/orOf and parseCondition.
     /// - Not: exactly one child.
     struct SqlCondition
     {

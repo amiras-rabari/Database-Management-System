@@ -1,9 +1,13 @@
 # --- db_sql: the SQL front end (lexer, parser, semantics, translator) --------
 set(DB_SQL_SOURCES
     lexer/sql_lexer.cpp
+    parser/sql_parser.cpp
+    parser/explain_ast.cpp
 )
 add_library(db_sql STATIC ${DB_SQL_SOURCES})
 target_include_directories(db_sql PUBLIC include)
+# Private headers (parser/sql_parser.h, ...) are included as "<folder>/<name>.h".
+target_include_directories(db_sql PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # sql links only common. The storage catalog reaches sql through a function
 # object (chunk 07), so only apps/ link storage.
 target_link_libraries(db_sql PUBLIC db_common)
@@ -13,8 +17,13 @@ add_executable(sql_tests
     tests/test_main.cpp
     tests/lexer_tests.cpp
     tests/ast_tests.cpp
+    tests/parser_condition_tests.cpp
+    tests/parser_tests.cpp
+    tests/explain_ast_tests.cpp
 )
 target_link_libraries(sql_tests PRIVATE db_sql doctest)
+# Tests may use the module's private headers (the parser's test hook).
+target_include_directories(sql_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_test(NAME sql_tests COMMAND sql_tests)
 set_tests_properties(sql_tests PROPERTIES TIMEOUT 60)
