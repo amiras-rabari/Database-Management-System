@@ -52,8 +52,9 @@ namespace db::opt
         /// from, or nullptr (never analyzed, or a computed column such as
         /// count(*)). Points into a TableInfo, which must outlive it.
         const storage::ColumnStats* stats = nullptr;
-        /// Estimated number of distinct values at this node; 0 = unknown.
-        /// Never more than the node's rows.
+        /// The column's number of distinct values: ANALYZE's ndv(T.c)
+        /// (§M4.1), carried up unchanged (a union adds both sides');
+        /// 0 = unknown.
         std::int64_t ndv = 0;
         /// Estimated width in bytes (statistics.h columnWidths).
         double width = 0.0;

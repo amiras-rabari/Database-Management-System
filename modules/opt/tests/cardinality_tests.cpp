@@ -197,13 +197,14 @@ TEST_CASE("cross and non-equality join")
     CHECK(root(PlanNode::cross(scanEmp, scanDept)).width == doctest::Approx(81.92 + 81.92));
 }
 
-TEST_CASE("after a select, a column has at most as many distinct values as rows")
+TEST_CASE("a join uses ANALYZE's ndv of the column, also after a select")
 {
-    // age > 60 leaves 2,000 rows, so ndv(eid) drops from 10,000 to 2,000:
-    // 2,000 x 50 / max(2,000, 50) = 50. Without the cap: 2,000 x 50 / 10,000 = 10.
+    // §M4.2's max(ndv(R.a), ndv(S.b)) with ndv(T.c) as §M4.1 defines it:
+    // the table column's statistic. age > 60 leaves 2,000 rows, and
+    // ndv(Emp.eid) stays 10,000: 2,000 x 50 / max(10,000, 50) = 10.
     PlanNode left = selectOn("Emp.age > 60", PlanNode::scan("Emp"));
     PlanNode join = PlanNode::join(db::parseCondition("Emp.eid = Dept.did"), left, PlanNode::scan("Dept"));
-    CHECK(root(join).rows == 50);
+    CHECK(root(join).rows == 10);
 }
 
 TEST_CASE("estimates come in pre-order: root, left subtree, right subtree")

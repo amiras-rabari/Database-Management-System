@@ -55,16 +55,6 @@ namespace db::opt
 
         NodeOutput estimateNode(const PlanNode& node, Walk& walk);
 
-        /// After a node keeps `rows` rows, no column can have more distinct
-        /// values than that.
-        void capNdv(std::vector<ColumnFacts>& facts, std::int64_t rows)
-        {
-            for (ColumnFacts& f : facts)
-            {
-                f.ndv = std::min(f.ndv, rows);
-            }
-        }
-
         double sumWidths(const std::vector<ColumnFacts>& facts)
         {
             double width = 0.0;
@@ -130,7 +120,6 @@ namespace db::opt
                 std::int64_t ndv = stats ? static_cast<std::int64_t>(stats->ndv) : 0;
                 out.facts.push_back(ColumnFacts{stats, ndv, widths[i]});
             }
-            capNdv(out.facts, out.rows);
             return out;
         }
 
@@ -159,7 +148,6 @@ namespace db::opt
                 }
             }
             out.rows = ceilRows(rows);
-            capNdv(out.facts, out.rows);
             return out;
         }
 
@@ -204,7 +192,6 @@ namespace db::opt
                 out.facts.push_back(ColumnFacts{nullptr, 0, width});
             }
             out.width = sumWidths(out.facts);
-            capNdv(out.facts, out.rows);
             return out;
         }
 
@@ -234,7 +221,6 @@ namespace db::opt
             }
             // except: at most every left row (out.rows is already left.rows).
 
-            capNdv(out.facts, out.rows);
             return out;
         }
 
@@ -261,7 +247,6 @@ namespace db::opt
                     double selectivity = estimateSelectivity(*node.condition, lookup);
                     out.rows = ceilRows(static_cast<double>(out.rows) * selectivity);
                     out.knownPages = 0;
-                    capNdv(out.facts, out.rows);
                     return out;
                 }
 
@@ -319,7 +304,6 @@ namespace db::opt
                     NodeOutput out = estimateNode(node.children[0], walk);
                     out.rows = ceilRows(static_cast<double>(std::min<std::int64_t>(node.limitCount, out.rows)));
                     out.knownPages = 0;
-                    capNdv(out.facts, out.rows);
                     return out;
                 }
 
