@@ -11,6 +11,24 @@
 
 namespace db::opt
 {
+    double schemaWidth(const Schema& schema)
+    {
+        // An INT takes 4 bytes; a VARCHAR(n) a 2-byte length plus up to n bytes.
+        double width = 0.0;
+        for (const Column& column : schema.columns())
+        {
+            if (column.type == Type::Varchar)
+            {
+                width += 2.0 + column.varcharLength;
+            }
+            else
+            {
+                width += 4.0;
+            }
+        }
+        return width;
+    }
+
     double tableWidth(const storage::TableInfo& info)
     {
         if (info.stats)
@@ -29,20 +47,7 @@ namespace db::opt
         }
 
         // Empty and never analyzed: the widest record the schema allows.
-        // An INT takes 4 bytes; a VARCHAR(n) a 2-byte length plus up to n bytes.
-        double width = 0.0;
-        for (const Column& column : info.schema.columns())
-        {
-            if (column.type == Type::Varchar)
-            {
-                width += 2.0 + column.varcharLength;
-            }
-            else
-            {
-                width += 4.0;
-            }
-        }
-        return width;
+        return schemaWidth(info.schema);
     }
 
     std::vector<double> columnWidths(const storage::TableInfo& info)

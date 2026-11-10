@@ -24,6 +24,11 @@
 
 namespace db::opt
 {
+    /// The widest record the schema allows: INT 4 bytes, VARCHAR(n) a 2-byte
+    /// length plus n bytes. The width of an empty table, which has no rows
+    /// to average (tableWidth below, and ANALYZE on an empty table).
+    double schemaWidth(const Schema& schema);
+
     /// Average row width in bytes.
     /// - Analyzed: ANALYZE's exact width.
     /// - Not analyzed, with rows: pages x 4096 / rows, so an unfiltered scan

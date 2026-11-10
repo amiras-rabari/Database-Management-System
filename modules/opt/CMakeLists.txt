@@ -2,6 +2,8 @@
 set(DB_OPT_SOURCES
     stats/statistics.cpp
     stats/histogram.cpp
+    stats/analyze.cpp
+    selectivity/selectivity.cpp
 )
 add_library(db_opt STATIC ${DB_OPT_SOURCES})
 target_include_directories(db_opt PUBLIC include)
@@ -15,6 +17,8 @@ add_executable(opt_tests
     tests/test_main.cpp
     tests/statistics_tests.cpp
     tests/histogram_tests.cpp
+    tests/analyze_tests.cpp
+    tests/selectivity_tests.cpp
 )
 target_link_libraries(opt_tests PRIVATE db_opt doctest)
 
@@ -25,7 +29,8 @@ set_tests_properties(opt_tests PROPERTIES TIMEOUT 60)
 # rules). Reuses common's checker over every library source and header.
 file(GLOB_RECURSE OPT_LIBRARY_FILES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/stats/*.h ${CMAKE_CURRENT_SOURCE_DIR}/stats/*.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/stats/*.h ${CMAKE_CURRENT_SOURCE_DIR}/stats/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/selectivity/*.h ${CMAKE_CURRENT_SOURCE_DIR}/selectivity/*.cpp)
 add_test(NAME opt_library_has_no_io_or_regex
     COMMAND ${CMAKE_COMMAND} "-DFILES=${OPT_LIBRARY_FILES}"
             -P ${PROJECT_SOURCE_DIR}/modules/common/tests/check_forbidden.cmake)
