@@ -6,7 +6,7 @@ The five measurements of §M2.6, produced by `python bench/report_m2.py` (from t
 
 **Machine and build:** Windows 11, MinGW GCC 15.2 (CLion's bundled toolchain), CMake + Ninja, default build type. The counters do not depend on the machine; only the run time does.
 
-**Data:** the M2 dataset is NOT AVAILABLE, so the script builds its own tables. There are no random numbers; every value is a formula.
+**Assumptions: data and plans.** The instructor will not post the M2 dataset or sample plans, and asked us to use our own and document them (Brightspace, 2026-11-11). The script builds its own tables (below) and its own plans (written in `bench/report_m2.py`, next to each measurement); these inputs are final. There are no random numbers; every value is a formula.
 - **R and S:** `(a INT, b VARCHAR(10), c INT)` with 3-byte b values. A record is 4 + (2 + 3) + 4 = 13 bytes, so **240 rows fill a page** (4088 // (13 + 4)). Row i has a = i, so the join `R.a = S.a` matches exactly |S| rows. M and N are in pages.
 - **Skew tables:** `(a INT, b INT)`, 340 rows per page.
 

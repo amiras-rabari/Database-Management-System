@@ -5,7 +5,7 @@ Usage (from the repo root, after building):
 
 Black box: it only runs the real `storage` and `exec` programs, as a grader
 would. It builds its own tables with `storage create-table` / `storage load`
-(the published datasets and plans are NOT AVAILABLE), works out the expected
+(the instructor will not post datasets or plans; the inputs are our own), works out the expected
 rows itself in plain Python (independent of the C++ code), and compares:
 
 - result rows, as a bag (§M2.5 "Output is checked for correct tuples, as a bag");

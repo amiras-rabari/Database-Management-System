@@ -1,7 +1,7 @@
 #pragma once
 
-// The catalog every sql test uses: four tables, in memory (the sample
-// catalog is not available yet). Emp and Dept have the columns of the
+// The catalog every sql test uses: four tables, in memory (our own; the
+// instructor will not post a sample catalog). Emp and Dept have the columns of the
 // spec's examples (§M3.5); Proj and Loc give required cases 2 and 15 a third
 // and fourth table. `did` and `city` appear in more than one table on
 // purpose (cases 2 and 3).

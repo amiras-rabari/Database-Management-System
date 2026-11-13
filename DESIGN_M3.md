@@ -231,7 +231,7 @@ sql check   --db DIR --file q.sql            # errors only
 - `(SELECT name AS n FROM Emp) AS t … t.n` is a `name` error, because the alias does not reach the plan (D4). PostgreSQL accepts it.
 - An aggregate alias equal to a grouping column's name (`SELECT did, COUNT(*) AS did … GROUP BY did`) makes a later bare `did` ambiguous.
 - ORDER BY and LIMIT belong to one select block (the §M3.2 grammar), never to a whole UNION (`GRAMMAR_SQL.md` D10).
-- The grader's sample catalog is not available yet. The tests use synthetic catalogs (an in-memory one, and `--db` folders built with storage's `createTable`). They must be re-run when the real one arrives.
+- The instructor will not post a sample catalog (Brightspace, 2026-11-11: use your own and document it). The tests use our own catalogs: an in-memory one (`modules/sql/tests/test_catalog.h`: Emp and Dept with the columns of the §M3.5 examples, plus Proj and Loc for required cases 2 and 15), and `--db` folders built with storage's `createTable`.
 
 ---
 

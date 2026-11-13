@@ -1,7 +1,3 @@
-//
-// Created by amira on 2026-09-22.
-//
-
 #include "relation_lexer.h"
 
 #include "db/common/error.h"

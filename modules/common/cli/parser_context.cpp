@@ -1,7 +1,3 @@
-//
-// Created by amira on 2026-09-27.
-//
-
 #include "parser_context.h"
 
 #include "db/common/error.h"

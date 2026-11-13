@@ -10,7 +10,7 @@ measurement is run twice and must give identical counters (§M2.1). Tables are
 printed as Markdown and also written to bench/out/m2/tables.md; the two
 crossover plots go to bench/plots/ (SVG, no plotting library needed).
 
-Data (the M2 dataset is NOT AVAILABLE): R and S have the schema
+Data (our own; the instructor will not post an M2 dataset): R and S have the schema
 (a INT, b VARCHAR(10), c INT) with 3-byte b values, so a record is 13 bytes and
 240 rows fill a page (§M1.4: 4088 // (13 + 4)). Row i has a = i, so the join
 R.a = S.a has exactly |S| matches. The skew tables are (a INT, b INT), 340 rows

@@ -1,12 +1,7 @@
 # data
 
-Brightspace files go here. Status is tracked in the NOT AVAILABLE register in `spec/GLOBAL.md`; update it when a file arrives.
+The module companion files (traces, sample plans, datasets, catalog, M4 workload) will not be posted (instructor, 2026-11-11; `spec/GLOBAL.md` register items 3–8). The bench scripts in `bench/` generate our own inputs, and each report lists them in its Assumptions section.
 
 | Folder | Contents |
 |---|---|
-| `traces/` | M1 buffer traces (5 published; trace 3 = 80-page file scanned 10 times) |
-| `plans/` | M2 sample physical plans |
-| `datasets/` | M1 sample data, M2 dataset |
-| `catalog/` | M3 sample catalog |
-| `workload/` | M4 twenty-query workload and dataset |
-| `hidden/` | Integration dataset and 25 queries (released 72 h before the demo) |
+| `hidden/` | Integration dataset and 25 queries (expected 72 h before the demo; register item 9) |

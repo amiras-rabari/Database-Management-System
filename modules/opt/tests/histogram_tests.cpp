@@ -1,5 +1,5 @@
 // Chunk 02: building one column's statistics from its sorted values.
-// All data is synthetic (the M4 workload is not available yet).
+// All data is our own (the instructor will not post an M4 workload).
 
 #include <doctest/doctest.h>
 

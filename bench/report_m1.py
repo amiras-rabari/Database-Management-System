@@ -8,9 +8,10 @@ measurement twice (the counters must be identical, GLOBAL §0.2), and prints
 the Markdown tables. Everything it creates goes in bench/out/, which is
 deleted at the start, so every run starts from nothing.
 
-Traces: if data/traces/ holds .txt files (the published ones), they are used.
-Until then, five seeded stand-ins are generated; trace 3 is exactly the
-spec's (pages 0-79 scanned ten times), the other four are synthetic.
+Traces: the instructor will not post trace files, so the test inputs are our
+own (Brightspace ruling, 2026-11-11). The script writes five traces with a
+fixed seed. Trace 3 is exactly the spec's (pages 0-79 scanned ten times); the
+other four are our own access patterns, described in REPORT_M1.md.
 """
 
 import json
@@ -80,7 +81,8 @@ def capacity(db):
 
 
 # 2. Policies: every trace x B in 4, 16, 64, 256 x LRU and CLOCK.
-def stand_in_traces():
+def make_traces():
+    """Writes the five traces to bench/out/traces/ and returns {label: path}."""
     rng = random.Random(3005)  # fixed seed: the same files on every run
     hot = list(range(40))  # 20% of 200 pages
     mix = []
@@ -108,8 +110,7 @@ def policies(db):
         r = run("trace", "--db", db, "--file", spec, "--frames", 3, "--policy", policy)
         assert (r["hits"], r["misses"], r["evictions"]) == expected, f"spec trace, {policy}: {r}"
 
-    real = sorted((ROOT / "data" / "traces").glob("*.txt"))
-    traces = {p.stem: p for p in real} if real else stand_in_traces()
+    traces = make_traces()
     tables = []
     for policy in ("lru", "clock"):
         rows = []

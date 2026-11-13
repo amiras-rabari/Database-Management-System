@@ -1,7 +1,3 @@
-//
-// Created by amira on 2026-09-22.
-//
-
 #pragma once
 
 /// @file

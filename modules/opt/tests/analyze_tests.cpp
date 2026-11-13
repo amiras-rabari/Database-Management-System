@@ -1,5 +1,5 @@
 // Chunk 03: ANALYZE on real tables in a fresh database folder.
-// Data is synthetic (the M4 workload is not available yet).
+// Data is our own (the instructor will not post an M4 workload).
 
 #include <doctest/doctest.h>
 
