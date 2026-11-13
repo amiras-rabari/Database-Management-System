@@ -136,9 +136,9 @@ The `pad` column is filler, so that exactly 50 rows fit on a page and the page c
 
 **B.** Measurements 1–3 use **B = 32**, the spec's example budget. Measurements 2, 3 and 5 are repeated at **B = 4**, the smallest B the spec allows; section 7 also uses B = 256.
 
-**How estimates are paired with actual rows.** `opt explain --json` gives each node's `est_rows` in **pre-order** (root, left subtree, right subtree). `exec trace --json` on the plan from `opt plan` gives each node's actual `tuples_out` in the same order. Row i of one is node i of the other. The script checks that both lists have the same length and stops if not.
+**How estimates are paired with actual rows.** `opt explain --json` gives each node's `est_rows` in **pre-order** (root, left subtree, right subtree). `exec trace --json` on the plan from `opt plan` gives each node's actual `tuples_out` in the same order. **Row i of one is node i of the other**. The script checks that both lists have the same length and stops if not.
 
-**Two counting rules (ours):**
+**Two counting rules :**
 - **An actual count of 0 counts as 1.** Our estimates are never below 1 row (§M4.2), so 1 is the smallest number they can be compared with.
 - **The inner input of a nested loop is counted per pass.** Exec reruns the inner input once per block of the outer and counts its rows every time, so a 500-row inner read 3 times reports 1,500. The estimate is for one pass (500). So each node of the inner subtree is divided by the number of passes, read off its scan: rows returned / table rows (1,500 / 500 = 3).
 
@@ -236,12 +236,13 @@ q15  join + group_by B = 32  █                                1.00×   (77 vs 
                      B = 4   ██                               2.88×   (77 vs 222)
 ```
 
-**Ratio 1.00 at both B** (same I/O in both plans; page I/O in brackets, B = 32 / B = 4 where they differ): q01 (75), q02 (75), q03 (75), q04 (75), q05 (747), q10 (543), q14 (75), q16 (75 / 82), q17 (5), q18 (202), q19 (255 / 375), q20 (75).
+**Ratio 1.00 at both `B`** *(same I/O in both plans; page I/O in brackets, `B = 32` / `B = 4` where they differ)*:  
+`q01` (75), `q02` (75), `q03` (75), `q04` (75), `q05` (747), `q10` (543), `q14` (75), `q16` (75 / 82), `q17` (5), `q18` (202), `q19` (255 / 375), `q20` (75).
 
 **Why the ratio varies so much:**
-- **One table (ratio 1):** a filter, sort or group_by over one scan reads the table once whatever the plan.
-- **Two tables (1–3× at B = 32):** both inputs fit in the 30-page nested-loop block, so each table is read once in either plan. At B = 4 (a 2-page block) the unoptimized plan's large, unfiltered outer needs many passes (q07: 12.69×).
-- **Three or four tables (3–47×):** the written order is bad. In q11 the unoptimized plan first joins Emp and Works (30,000 rows) and only then applies `p.budget > 95000`. Our plan starts from the 21 Proj rows that pass the filter, so every later join is small: 199 vs 8,939 page I/O.
+* **One table (`1×` ratio):** A filter, sort, or `GROUP BY` over a single scan reads the table once regardless of the plan.
+* **Two tables (`1–3×` at `B = 32`):** Both inputs fit inside the 30-page nested-loop block, so each table is read once in either plan. At `B = 4` (a 2-page block), the unoptimized plan's large, unfiltered outer input requires many passes (`q07`: `12.69×`).
+* **Three or four tables (`3–47×`):** The query's written join order is inefficient. In `q11`, the unoptimized plan joins `Emp` and `Works` (`30,000` rows) before filtering `p.budget > 95000`. Our plan starts with the `21` `Proj` rows that pass the filter, keeping every subsequent join small (`199` vs. `8,939` page I/O).
 
 ---
 
@@ -282,9 +283,11 @@ rule 7 off   ·                                    +0   total  4,043
 
 Queries whose I/O changed (with the rule → without it):
 
-- rule 2 off: q07 (353 → 1,092), q09 (124 → 243), q11 (282 → 2,353), q12 (198 → 3,261), q13 (521 → 6,991)
-- rule 1 off: q09 (124 → 243), q12 (198 → 3,261), q13 (521 → 6,991)
-- rule 6 off: q07 (353 → 526), q11 (282 → 585), q12 (198 → 321), q13 (521 → 307)
+| Setting        | `q07`       | `q09`     | `q11`       | `q12`       | `q13`       |
+| :------------- | :---------- | :-------- | :---------- | :---------- | :---------- |
+| **Rule 2 off** | 353 → 1,092 | 124 → 243 | 282 → 2,353 | 198 → 3,261 | 521 → 6,991 |
+| **Rule 1 off** | —           | 124 → 243 | —           | 198 → 3,261 | 521 → 6,991 |
+| **Rule 6 off** | 353 → 526   | —         | 282 → 585   | 198 → 321   | 521 → 307   |
 
 **Why each rule is worth what it is:**
 
@@ -342,7 +345,10 @@ both (AND)              82 rows  (5 % × 5 %)  ✘     1,618   ← 19.7× too lo
  cost on paper: 2 + 1 × 542 = 544          real I/O: 747 (Cust) + 19 × 543 (Orders) = 11,064
 ```
 
-On paper, a hash join would cost 3 × (2 + 542) = 1,632, so the nested loop (544) wins. With the right size (36 pages), the nested loop would need 18 passes (36 + 18 × 542 = 9,792), and the hash join (1,734) wins. That is the plan opt picks when we give it only `zip < 50`, whose guess is exact.
+* **With the wrong size estimate (2 pages):** A hash join costs `3 × (2 + 542) = 1,632`, so the optimizer picks the **nested loop** (`544`).
+* **With the true size (36 pages):** The nested loop requires 18 passes (`36 + 18 × 542 = 9,792`), making the **hash join** (`1,734`) the clear winner.
+
+When given only `zip < 50`, where the row estimate is exact, the optimizer switches to the hash join.
 
 **Bad plan vs the better one.** To get the better plan, we took the plan opt picks for `zip < 50` alone, put both conditions back into its filter, and ran it with `exec`. Both plans return the same 4,796 rows.
 
@@ -356,9 +362,14 @@ B     bad plan (nested loop)          better plan                  bad ÷ better
 32    ████ 1,833                      ████ 1,833   (same plan)          1.00×
 ```
 
-The damage shrinks as B grows: a bigger block holds the 37 real pages in fewer passes, and from B = 16 the nested loop is the right choice anyway. The hash join at B = 4 does more than 3 × (M + N) itself (4,093 reads, 583 writes, because partitions overflow; section 5), and it still wins.
+**How buffer size (`B`) changes the impact:**
+* **As `B` grows, the penalty shrinks:** A larger buffer fits the 37 actual pages in fewer passes, and from `B = 16` onward, the nested loop becomes the right choice anyway.
+* **At `B = 4`, the hash join still wins:** Even though partition overflows push the hash join beyond its standard `3 × (M + N)` cost (`4,093` reads and `583` writes), it still beats the nested loop.
 
-**What would have prevented it:** a statistic on **(city, zip) together**, for example the number of distinct (city, zip) pairs. That number is 1,000, the same as the number of zips, which shows that the zip decides the city. The optimizer would then use the zip's 5 % alone and guess 1,618 rows exactly. PostgreSQL stores this as `CREATE STATISTICS … (dependencies)`. A two-column histogram on (city, zip) would also count the 1,618 rows directly.
+**How to prevent the bad estimate:**
+Tracking statistics on `(city, zip)` together would fix the miscalculation in either of two ways:
+* **Joint distinct counts (Functional Dependencies):** Counting distinct `(city, zip)` pairs yields `1,000`—the exact same count as distinct `zip` values—proving that `zip` determines `city`. The optimizer would then rely solely on `zip`'s 5% selectivity and estimate `1,618` rows accurately (similar to PostgreSQL's `CREATE STATISTICS ... (dependencies)`).
+* **Two-column histograms:** A combined histogram on `(city, zip)` would count the `1,618` rows directly.
 
 ---
 
@@ -371,56 +382,57 @@ How to read it:
 - **Measured** = exec's page I/O minus the directory pages. We don't count directory pages on purpose (§M4.1 counts data pages only); it is one page per scan pass.
 - ✔ = exact; ≈ = within 1 page (rounding); ← = a real gap, explained below.
 
-```
-query joins          B = 32: predicted  measured  gap    B = 4: predicted  measured  gap
-q01   no join                       74        74   +0 ✔                 74        74   +0 ✔
-q02   no join                       74        74   +0 ✔                 74        74   +0 ✔
-q03   no join                       74        74   +0 ✔                 74        74   +0 ✔
-q04   no join                       74        74   +0 ✔                 74        74   +0 ✔
-q05   no join                      745       745   +0 ✔                745       745   +0 ✔
-q06   BNL                           75        75   +0 ✔                 75        75   +0 ✔
-q07   BNL                          192       192   +0 ✔                278       351  +73 ←
-q08   BNL                            5         5   +0 ✔                  5         5   +0 ✔
-q09   BNL                          122       122   +0 ✔                122       122   +0 ✔
-q10   no join                      542       542   +0 ✔                542       542   +0 ✔
-q11   BNL, BNL                     196       196   +0 ✔                235       278  +43 ←
-q12   BNL, BNL                     193       193   +0 ✔                194       195   +1 ≈
-q13   BNL, BNL, BNL                197       197   +0 ✔                217       513 +296 ←
-q14   no join                       74        74   +0 ✔                 74        74   +0 ✔
-q15   BNL                           75        75   +0 ✔                 75        75   +0 ✔
-q16   no join                       74        74   +0 ✔                 82        81   -1 ≈
-q17   no join                        4         4   +0 ✔                  4         4   +0 ✔
-q18   no join                      192       200   +8 ←                192       200   +8 ←
-q19   no join                      224       253  +29 ←                254       373 +119 ←
-q20   no join                       74        74   +0 ✔                 74        74   +0 ✔
-```
+| query | joins         | B = 32: predicted | measured |  gap  | B = 4: predicted | measured |  gap   |
+| :---- | :------------ | :---------------: | :------: | :---: | :--------------: | :------: | :----: |
+| q01   | no join       |        74         |    74    | +0 ✔  |        74        |    74    |  +0 ✔  |
+| q02   | no join       |        74         |    74    | +0 ✔  |        74        |    74    |  +0 ✔  |
+| q03   | no join       |        74         |    74    | +0 ✔  |        74        |    74    |  +0 ✔  |
+| q04   | no join       |        74         |    74    | +0 ✔  |        74        |    74    |  +0 ✔  |
+| q05   | no join       |        745        |   745    | +0 ✔  |       745        |   745    |  +0 ✔  |
+| q06   | BNL           |        75         |    75    | +0 ✔  |        75        |    75    |  +0 ✔  |
+| q07   | BNL           |        192        |   192    | +0 ✔  |       278        |   351    | +73 ←  |
+| q08   | BNL           |         5         |    5     | +0 ✔  |        5         |    5     |  +0 ✔  |
+| q09   | BNL           |        122        |   122    | +0 ✔  |       122        |   122    |  +0 ✔  |
+| q10   | no join       |        542        |   542    | +0 ✔  |       542        |   542    |  +0 ✔  |
+| q11   | BNL, BNL      |        196        |   196    | +0 ✔  |       235        |   278    | +43 ←  |
+| q12   | BNL, BNL      |        193        |   193    | +0 ✔  |       194        |   195    |  +1 ≈  |
+| q13   | BNL, BNL, BNL |        197        |   197    | +0 ✔  |       217        |   513    | +296 ← |
+| q14   | no join       |        74         |    74    | +0 ✔  |        74        |    74    |  +0 ✔  |
+| q15   | BNL           |        75         |    75    | +0 ✔  |        75        |    75    |  +0 ✔  |
+| q16   | no join       |        74         |    74    | +0 ✔  |        82        |    81    |  -1 ≈  |
+| q17   | no join       |         4         |    4     | +0 ✔  |        4         |    4     |  +0 ✔  |
+| q18   | no join       |        192        |   200    | +8 ←  |       192        |   200    |  +8 ←  |
+| q19   | no join       |        224        |   253    | +29 ← |       254        |   373    | +119 ← |
+| q20   | no join       |        74         |    74    | +0 ✔  |        74        |    74    |  +0 ✔  |
 
 **The causes of the gaps:**
 
-```
-q18 +8,  q19 +29 / +119  ← sort runs need more pages than rows × width / 4096: each row also needs a 4-byte slot,
-                           so 14,965 four-byte rows take 30 pages, not 15
-q11 +43, q13 +296 (B = 4) ← a filtered inner input is reread whole: the formula counts 4 filtered pages per pass,
-                           exec reads all 75 pages of Emp on each of 5 passes
-q07 +73 (B = 4)           ← hash join: half-empty partition pages and partitions too big for memory
-correlated query (§4)     ← wrong row estimate: predicted 1,287, measured 11,064
-§M4.5 shape (§6)          ← not a gap here: explain already uses exec's real memory split (the search does not)
-```
+* **q18 +8, q19 +29 / +119** ← sort runs need more pages than rows × width / 4096: each row also needs a 4-byte slot, so 14,965 four-byte rows take 30 pages, not 15
+* **q11 +43, q13 +296 (B = 4)** ← a filtered inner input is reread whole: the formula counts 4 filtered pages per pass, exec reads all 75 pages of Emp on each of 5 passes
+* **q07 +73 (B = 4)** ← hash join: half-empty partition pages and partitions too big for memory
+* **correlated query (§4)** ← wrong row estimate: predicted 1,287, measured 11,064
+* **§M4.5 shape (§6)** ← not a gap here: explain already uses exec's real memory split (the search does not)
 
-**Hash join: which number is right?** §M4.4 says: "If the modules disagree about a hash join's cost, say which is right and fix the other."
-- **Exec's measured I/O is right.** It does the extra work for real: half-empty partition pages, and a nested loop for each partition too big for memory (Emp ⋈ Emp on did at B = 4: estimate 282, exec 524 reads + 94 writes; `REPORT_M2.md` §1: 90 vs 1,052 at B = 256).
-- **We kept opt's 3 × (M + N).** Exec can't change: both behaviours are §M2.3 rules. And how much overflow happens depends on how the keys hash, which statistics cannot show.
-- **Sort-merge is the opposite case:** there exec showed the formula counted the merge's reads twice, so we fixed the formula to `sort(M) + sort(N)` (`DESIGN_M4.md` §4).
+### Hash join: which number is right?
+
+> §M4.4 says: "If the modules disagree about a hash join's cost, say which is right and fix the other."
+
+* **Exec's measured I/O is right.** It does the extra work for real: half-empty partition pages, and a nested loop for each partition too big for memory (`Emp ⋈ Emp on did` at `B = 4`: estimate `282`, exec `524` reads + `94` writes; `REPORT_M2.md §1`: `90` vs `1,052` at `B = 256`).
+
+* **We kept opt's `3 × (M + N)`.** Exec can't change: both behaviours are `§M2.3` rules. And how much overflow happens depends on how the keys hash, which statistics cannot show.
+
+* **Sort-merge is the opposite case:** there exec showed the formula counted the merge's reads twice, so we fixed the formula to `sort(M) + sort(N)` (`DESIGN_M4.md §4`).
 
 ---
 
 ## 6. The join-order search picks a plan that runs 2.4 times slower
 
-**Takeaway: on the §M4.5 example built as real tables (B = 32), every row estimate is exact, but the search still picks the worse join order: 4,324 page I/O against 1,823. It assumes every join gets all B pages of memory; in exec, a join running under another join gets a 1-page block.**
+> **Takeaway:** When the `§M4.5` example is built as real tables (`B = 32`), every row estimate is exact yet the search still picks the worse join order (`4,324` page I/O instead of `1,823`). This happens because the search assumes every join gets all `B` pages of memory, whereas in `exec`, a join running underneath another join only gets a `1-page` block.
 
-The tables: A = 100 pages, B′ (`Bp`) = 10 pages, C = 400 pages (section 0). Query: `SELECT * FROM A, Bp, C WHERE A.x = Bp.x AND Bp.y = C.y`.
+* **Tables:** `A` = `100` pages, `B′ (Bp)` = `10` pages, `C` = `400` pages (section 0)
+* **Query:** `SELECT * FROM A, Bp, C WHERE A.x = Bp.x AND Bp.y = C.y`
 
-**What the search saw** (`opt dp-table`, every join given all 32 pages):
+**What the search saw** (`opt dp-table`, with every join given all `32` pages):
 
 | Subset | Best plan considered | Cost |
 |---|---|---|
@@ -439,18 +451,15 @@ With real row widths, the joined groups are 38 and 76 pages, not the spec's 20 a
 
 **What exec did** (reads per scan; each scan also reads 1 directory page):
 
-```
- the search's choice: (B′ ⋈ C) ⋈ A            the rejected order: (B′ ⋈ A) ⋈ C
- search cost 786                              search cost 948
+| **the search's choice:<br>`(B′ ⋈ C) ⋈ A`**<br>search cost `786` |           Page I/O | **the rejected order: <br>`(B′ ⋈ A) ⋈ C`**<br>search cost `948` |           Page I/O |
+| :-------------------------------------------------------------- | -----------------: | :-------------------------------------------------------------- | -----------------: |
+| **nested loop ⋈ A** (28-page block)                             |                    | **nested loop ⋈ C** (28-page block)                             |                    |
+| ├── **nested loop ⋈ C** (1-page block!)                         |                    | ├── **nested loop ⋈ A** (1-page block!)                         |                    |
+| │&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── scan B′                      |               `11` | │&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── scan B′                      |               `11` |
+| │&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── scan C                       | `10 × 401 = 4,010` | │&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── scan A                       | `10 × 101 = 1,010` |
+| └── scan A                                                      |    `3 × 101 = 303` | └── scan C                                                      |    `2 × 401 = 802` |
+| **measured**                                                    |        **`4,324`** | **measured**                                                    |        **`1,823`** |
 
- nested loop ⋈ A   (28-page block)            nested loop ⋈ C   (28-page block)
- ├── nested loop ⋈ C  (1-page block!)         ├── nested loop ⋈ A  (1-page block!)
- │   ├── scan B′          11                  │   ├── scan B′          11
- │   └── scan C   10 × 401 = 4,010            │   └── scan A   10 × 101 = 1,010
- └── scan A        3 × 101 =   303            └── scan C    2 × 401 =   802
-                             ─────                                        ─────
- measured                    4,324            measured                    1,823
-```
 
 **Why:** both joins run at the same time and share the 32 pages. Exec gives the lower join only its minimum, a 1-page block, so it rereads its inner table once per page of B′ (10 times). The search assumed a 30-page block (one pass). The extra rereads hit C (400 pages) in the chosen plan, but only A (100 pages) in the other.
 
@@ -495,32 +504,104 @@ The other joins keep the nested loop at every B, because one input is tiny (Dept
 
 ## 8. The DP table for a four-relation query
 
-q13, `Emp e JOIN Works w ON e.eid = w.eid JOIN Proj p ON w.pid = p.pid JOIN Dept d ON p.did = d.did WHERE d.budget < 500 AND e.age > 65`, at B = 32 (`opt dp-table`, unchanged). One row per subset of the four relations. A subset whose relations are not linked by a join predicate is skipped (`—`), as §M4.5 requires. The last rows show, for the full set, the cheapest plan for each other relation joined last.
+**The query (q13), at B = 32:**
 
-Join block: e, w, p, d
+```sql
+SELECT e.name, p.pname, d.dname
+FROM Emp e
+  JOIN Works w ON e.eid = w.eid
+  JOIN Proj  p ON w.pid = p.pid
+  JOIN Dept  d ON p.did = d.did
+WHERE d.budget < 500 AND e.age > 65;
+```
 
-| Subset | Best plan considered | Cost |
-|---|---|---|
-| {e} | scan e | 74 |
-| {w} | scan w | 118 |
-| {p} | scan p | 4 |
-| {d} | scan d | 1 |
-| {e,w} | e outer, BNL with w inner | 63 |
-| {e,p} | no predicate, skipped | — |
-| {w,p} | p outer, BNL with w inner | 62 |
-| {e,d} | no predicate, skipped | — |
-| {w,d} | no predicate, skipped | — |
-| {p,d} | d outer, BNL with p inner | 4 |
-| {e,w,p} | {e,w} outer (17 pages), BNL with p inner | 83 |
-| {e,w,d} | no predicate, skipped | — |
-| {e,p,d} | no predicate, skipped | — |
-| {w,p,d} | {p,d} outer (1 pages), BNL with w inner | 64 |
-| {e,w,p,d} | {w,p,d} outer (11 pages), BNL with e inner | 79 |
-| | alternative: {e,w,p} outer (29 pages), BNL with d inner | 113 |
+**The DP table in full** (`opt dp-table`, join block `e, w, p, d`). Every row the command prints is here: all 15 subsets of the four tables, plus the alternative for the full set. The plan text and the costs are exactly as printed; only the layout is grouped by subset size. A subset with no join predicate between its tables is skipped (`—`), as §M4.5 requires.
 
-How to read it: e, w, p, d are the relations in written order. A base relation's cost is its scan (the pushed-down filters cost no I/O of their own). {p,d} = 4: d's filtered rows (1 page) as the outer, one pass over p's 3 projected pages, 1 + 1 × 3 = 4 (§M4.5 convention: the base outer's read is the M of the formula). The winner starts from the two filtered small tables, d then p, adds w (64), and joins Emp last as the inner (79). The written order (e ⋈ w first) costs 113 for its best last step.
+| Size | Subset | Best plan considered | Cost |
+|:---:|:---|:---|---:|
+| **1 table** | `{e}` | scan e | 74 |
+| | `{w}` | scan w | 118 |
+| | `{p}` | scan p | 4 |
+| | `{d}` | scan d | 1 |
+| **2 tables** | `{e,w}` | e outer, BNL with w inner | 63 |
+| | `{w,p}` | p outer, BNL with w inner | 62 |
+| | `{p,d}` | d outer, BNL with p inner | 4 |
+| | `{e,p}` | *no predicate, skipped* | — |
+| | `{e,d}` | *no predicate, skipped* | — |
+| | `{w,d}` | *no predicate, skipped* | — |
+| **3 tables** | `{e,w,p}` | {e,w} outer (17 pages), BNL with p inner | 83 |
+| | `{w,p,d}` | {p,d} outer (1 pages), BNL with w inner | 64 |
+| | `{e,w,d}` | *no predicate, skipped* | — |
+| | `{e,p,d}` | *no predicate, skipped* | — |
+| **4 tables** | **`{e,w,p,d}`** | **{w,p,d} outer (11 pages), BNL with e inner** ✔ chosen | **79** |
+| | | alternative: {e,w,p} outer (29 pages), BNL with d inner | 113 |
 
-**The DP's 79 is not the plan's real I/O.** Under the §M4.5 convention (chunk 01 decision 2), M and N are each input's *estimated output* pages: after the pushed-down filters and projections, Works is 59 pages instead of 118, filtered Emp 4 instead of 74. Exec still reads every table whole: 197 data pages + 4 directory pages = 201 (section 5). The DP's numbers rank the orders; the plan's real cost is explain's per-node total (197, exact). Because every order pays for the same full scans, this does not change the ranking here. It does when a filtered input is the inner of a nested loop (section 3, rule 6 and q13 at B = 4).
+**The same search as a picture.** Each box is a kept subset; an arrow means "this plan is built from that one". The green path is the chosen plan, the dashed box the rejected alternative, and the grey boxes the skipped subsets.
+
+```mermaid
+%%{init: {"flowchart": {"curve": "basis", "nodeSpacing": 45, "rankSpacing": 90}}}%%
+flowchart BT
+    subgraph S1 ["1 table"]
+        d["{d} · scan d<br/><b>1</b>"]
+        p["{p} · scan p<br/><b>4</b>"]
+        e["{e} · scan e<br/><b>74</b>"]
+        w["{w} · scan w<br/><b>118</b>"]
+    end
+
+    subgraph S2 ["2 tables"]
+        pd["{p,d}<br/>d outer, BNL with p inner<br/><b>4</b>"]
+        ew["{e,w}<br/>e outer, BNL with w inner<br/><b>63</b>"]
+        wp["{w,p}<br/>p outer, BNL with w inner<br/><b>62</b>"]
+        skip2["{e,p} {e,d} {w,d}<br/>no predicate: skipped"]
+    end
+
+    subgraph S3 ["3 tables"]
+        wpd["{w,p,d}<br/>{p,d} outer, BNL with w inner<br/><b>64</b>"]
+        ewp["{e,w,p}<br/>{e,w} outer, BNL with p inner<br/><b>83</b>"]
+        skip3["{e,w,d} {e,p,d}<br/>no predicate: skipped"]
+    end
+
+    subgraph S4 ["4 tables"]
+        best["{e,w,p,d} ✔ chosen<br/>{w,p,d} outer, BNL with e inner<br/><b>79</b>"]
+        alt["{e,w,p,d} alternative<br/>{e,w,p} outer, BNL with d inner<br/><b>113</b>"]
+    end
+
+    d ==> pd
+    p ==> pd
+    e --> ew
+    w --> ew
+    p --> wp
+    w --> wp
+    pd ==> wpd
+    w ==> wpd
+    ew --> ewp
+    p --> ewp
+    wpd ==> best
+    e ==> best
+    ewp -.-> alt
+    d -.-> alt
+
+    classDef chosen fill:#e6f4ea,stroke:#2ea043,stroke-width:3px,color:#1b4d2b
+    classDef kept fill:#f5f7fa,stroke:#8a94a6,color:#1f2937
+    classDef rejected fill:#fff7e6,stroke:#d4a017,stroke-dasharray:5 5,color:#5c4400
+    classDef skipped fill:#f0f0f0,stroke:#bbbbbb,stroke-dasharray:3 3,color:#888888
+    class d,p,pd,wpd,best chosen
+    class e,w,ew,wp,ewp kept
+    class alt rejected
+    class skip2,skip3 skipped
+```
+
+### How to Read the DP Trace
+
+* **Starting order:** `e`, `w`, `p`, `d` are the tables in their written SQL order. Each base table's cost is its full scan (pushed-down filters add no extra I/O).
+* **How `{p,d} = 4` is calculated:** Filtered `d` (`1` page) acts as the outer input and makes one pass over `p`'s `3` projected pages: `1 + 1 × 3 = 4` *(under the `§M4.5` convention, reading the base outer table counts as `M` in the formula)*.
+* **Winner (`79`) vs. Written Order (`113`):** The winning plan starts with the two small filtered tables (`d`, then `p`), joins `w` (`64`), and joins `Emp` last as the inner input (`79`). Starting with the written SQL order (`e ⋈ w` first) costs `113` for its best final step.
+
+### Why DP's `79` Differs from Real I/O (`197` / `201`)
+
+* **DP uses shrunk output sizes to rank plans:** Under the `§M4.5` convention (`chunk 01 decision 2`), `M` and `N` represent each input's *estimated output pages* after filters and projections—shrinking `Works` from `118` to `59` pages, and filtered `Emp` from `74` to `4` pages.
+* **Real execution still reads full tables:** `exec` reads every raw table in full (`197` data pages + `4` directory pages = `201` total; see `section 5`). DP's numbers (`79`) only *rank* candidate orders, whereas `explain`'s per-node total (`197`, exact) gives the plan's true data-page cost.
+* **When the shortcut matters:** Because every join order pays for the same full scans at `B = 32`, using shrunk sizes does not hurt the ranking here. However, it *does* distort rankings when a filtered table is the inner input of a nested loop across multiple passes (see `section 3`, `rule 6`, and `q13` at `B = 4`).
 
 ---
 

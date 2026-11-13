@@ -1,0 +1,2 @@
+SELECT * FROM Nope;
+SELECT * FROM R;

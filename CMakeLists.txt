@@ -24,6 +24,7 @@ add_subdirectory(modules/storage)
 add_subdirectory(modules/exec)
 add_subdirectory(modules/sql)
 add_subdirectory(modules/opt)
+add_subdirectory(modules/shell)
 
 # Executables and their CLI support libraries (after every module).
 add_subdirectory(apps)

@@ -93,7 +93,10 @@ sql     compile      --db DIR --file q.sql --json
 opt     plan         --db DIR --logical q.json --frames 32 --json
 opt     explain      --db DIR --logical q.json --frames 32
 opt     dp-table     --db DIR --logical q.json --frames 32
+shell   --db DIR [--frames B] [--file script.sql] [--json]
 ```
+
+The `shell` is the whole system in one program: type SQL at the `db> ` prompt (or pass `--file`) and rows come out. Besides `CREATE TABLE`, `INSERT` and `SELECT` it takes `LOAD t FROM 'file.csv'`, `ANALYZE t`, `SET frames = n`, `EXPLAIN q` and `EXPLAIN ANALYZE q`.
 
 ---
 

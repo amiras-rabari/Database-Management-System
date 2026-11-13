@@ -37,6 +37,10 @@ target_link_libraries(opt_cli_support PUBLIC db_opt nlohmann_json)
 add_executable(opt opt_main.cpp)
 target_link_libraries(opt PRIVATE opt_cli_support)
 
+# The shell (integration): one program with a prompt. All of it is in db_shell.
+add_executable(shell shell_main.cpp)
+target_link_libraries(shell PRIVATE db_shell)
+
 # --- Tests ------------------------------------------------------------------
 add_executable(storage_cli_tests
     tests/test_main.cpp
