@@ -130,72 +130,63 @@ Each module at a glance (colours match the diagrams; bottom to top, like 1.2):
 
 ### 1.3 One SELECT through the shell, call by call
 
-Modules across the top, time going down. Each numbered step is one call (one arrow, one shaded band). **Compile:** steps 1–6 · **Plan:** 7–10 · **Run:** 11–17 (13–15 repeat once per row).
+A SELECT passes through three phases: sql **compiles** it, opt **plans** it, and exec **runs** it on top of storage. Each box below is one call, numbered in order and coloured by the module that receives it (🟪 shell · 🟦 sql · 🟨 opt · 🟩 exec · 🟥 storage · ⬜ User). Follow each row from left to right, then step down to the next phase.
 
 ```mermaid
-%%{init: {"sequence": {"messageFontSize": 16, "actorFontSize": 17, "mirrorActors": true, "boxMargin": 6}, "themeCSS": ".sequenceNumber { font-size: 14px !important; font-weight: 700; } #sequencenumber circle { r: 11px; } #sequencenumber { overflow: visible; }"}}%%
-sequenceDiagram
-    autonumber
-    actor U as User
-    participant SH as shell
-    participant SQ as sql · M3
-    participant OP as opt · M4
-    participant EX as exec · M2
-    participant ST as storage · M1
+%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 24, "rankSpacing": 38, "padding": 10}}}%%
+flowchart TB
+    subgraph R1["① COMPILE · sql turns the text into a logical plan"]
+        direction LR
+        S1(["<b style='font-size:25px'>1</b><br/>User → shell<br/>SELECT …"])
+        S2["<b style='font-size:25px'>2</b><br/>shell → sql<br/>tokenizeSql(piece)"]
+        S3["<b style='font-size:25px'>3</b><br/>sql → shell<br/>tokens, one statement<br/>per semicolon"]
+        S4["<b style='font-size:25px'>4</b><br/>shell → sql<br/>compileSql(text,<br/>TableLookup)"]
+        S5["<b style='font-size:25px'>5</b><br/>sql → storage<br/>Catalog::getTable<br/>(schema)"]
+        S6["<b style='font-size:25px'>6</b><br/>sql → shell<br/>logical PlanNode"]
+        S1 --> S2 --> S3 --> S4 --> S5 --> S6
+    end
 
-    rect rgba(124, 58, 237, 0.13)
-        U->>SH: SELECT …
+    subgraph R2["② PLAN · opt turns it into a physical plan with estimates"]
+        direction LR
+        S7["<b style='font-size:25px'>7</b><br/>shell → opt<br/>optimize(logical,<br/>StatsProvider,<br/>{frames = B})"]
+        S8["<b style='font-size:25px'>8</b><br/>opt → storage<br/>Catalog::getTable<br/>(rows, pages, statistics)"]
+        S9["<b style='font-size:25px'>9</b><br/>opt → exec<br/>divideFrames<br/>(frame shares for costs)"]
+        S10["<b style='font-size:25px'>10</b><br/>opt → shell<br/>OptimizedPlan<br/>{physical, estimates}"]
+        S7 --> S8 --> S9 --> S10
     end
-    rect rgba(37, 99, 235, 0.09)
-        SH->>SQ: tokenizeSql(piece)
+
+    subgraph R3["③ RUN · exec runs it inside B frames, rows come out"]
+        direction LR
+        S11["<b style='font-size:25px'>11</b><br/>shell → storage<br/>resetPool(B): cold pool,<br/>counters at 0"]
+        S12["<b style='font-size:25px'>12</b><br/>shell → exec<br/>buildExecutablePlan(<br/>physical, ExecContext)"]
+        S13["<b style='font-size:25px'>13</b><br/>exec → storage<br/>fetch pages<br/>(≤ B frames)"]
+        S14["<b style='font-size:25px'>14</b><br/>exec → shell<br/>next row"]
+        S15(["<b style='font-size:25px'>15</b><br/>shell → User<br/>row printed"])
+        S16["<b style='font-size:25px'>16</b><br/>shell → exec<br/>totals(), trace()"]
+        S17(["<b style='font-size:25px'>17</b><br/>shell → User<br/>&quot;N rows&quot;<br/>(or the --json<br/>numbers)"])
+        S11 --> S12 --> S13 --> S14 --> S15
+        S15 -. "more rows:<br/>open / next / close" .-> S13
+        S15 -- "no more rows" --> S16 --> S17
     end
-    rect rgba(124, 58, 237, 0.13)
-        SQ-->>SH: tokens, one statement per semicolon
-    end
-    rect rgba(37, 99, 235, 0.09)
-        SH->>SQ: compileSql(text, TableLookup)
-    end
-    rect rgba(124, 58, 237, 0.13)
-        SQ->>ST: Catalog::getTable (schema)
-    end
-    rect rgba(37, 99, 235, 0.09)
-        SQ-->>SH: logical PlanNode
-    end
-    rect rgba(124, 58, 237, 0.13)
-        SH->>OP: optimize(logical, StatsProvider, {frames = B})
-    end
-    rect rgba(37, 99, 235, 0.09)
-        OP->>ST: Catalog::getTable (rows, pages, statistics)
-    end
-    rect rgba(124, 58, 237, 0.13)
-        OP->>EX: divideFrames (frame shares for costs)
-    end
-    rect rgba(37, 99, 235, 0.09)
-        OP-->>SH: OptimizedPlan {physical, estimates}
-    end
-    rect rgba(124, 58, 237, 0.13)
-        SH->>ST: resetPool(B), cold pool, counters at 0
-    end
-    rect rgba(37, 99, 235, 0.09)
-        SH->>EX: buildExecutablePlan(physical, ExecContext)
-    end
-    loop open / next / close, once per row
-        rect rgba(124, 58, 237, 0.13)
-            EX->>ST: fetch pages (≤ B frames)
-        end
-        rect rgba(37, 99, 235, 0.09)
-            EX-->>SH: next row
-        end
-        rect rgba(124, 58, 237, 0.13)
-            SH-->>U: row printed
-        end
-    end
-    rect rgba(37, 99, 235, 0.09)
-        SH->>EX: totals(), trace()
-    end
-    rect rgba(124, 58, 237, 0.13)
-        SH-->>U: "N rows" (or the --json numbers)
-    end
+
+    R1 ==> R2 ==> R3
+
+    style R1 fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#0f172a
+    style R2 fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#0f172a
+    style R3 fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#0f172a
+
+    classDef user fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#0f172a
+    classDef shell fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#1e1b4b
+    classDef sql fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#0f172a
+    classDef opt fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#0f172a
+    classDef exec fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#0f172a
+    classDef storage fill:#fee2e2,stroke:#dc2626,stroke-width:2px,color:#0f172a
+    class S1,S3,S6,S10,S14 shell
+    class S2,S4 sql
+    class S7 opt
+    class S9,S12,S16 exec
+    class S5,S8,S11,S13 storage
+    class S15,S17 user
 ```
 
 ### 1.4 The one shared limit: B frames
