@@ -8,6 +8,7 @@ set(DB_OPT_SOURCES
     rewrite/rewrite.cpp
     cost/cost.cpp
     physical/to_physical.cpp
+    enumerate/dp.cpp
 )
 add_library(db_opt STATIC ${DB_OPT_SOURCES})
 target_include_directories(db_opt PUBLIC include)
@@ -27,6 +28,7 @@ add_executable(opt_tests
     tests/rewrite_tests.cpp
     tests/cost_tests.cpp
     tests/physical_tests.cpp
+    tests/dp_tests.cpp
 )
 target_link_libraries(opt_tests PRIVATE db_opt doctest)
 
@@ -41,7 +43,8 @@ file(GLOB_RECURSE OPT_LIBRARY_FILES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/selectivity/*.h ${CMAKE_CURRENT_SOURCE_DIR}/selectivity/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/rewrite/*.h ${CMAKE_CURRENT_SOURCE_DIR}/rewrite/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cost/*.h ${CMAKE_CURRENT_SOURCE_DIR}/cost/*.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/physical/*.h ${CMAKE_CURRENT_SOURCE_DIR}/physical/*.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/physical/*.h ${CMAKE_CURRENT_SOURCE_DIR}/physical/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/enumerate/*.h ${CMAKE_CURRENT_SOURCE_DIR}/enumerate/*.cpp)
 add_test(NAME opt_library_has_no_io_or_regex
     COMMAND ${CMAKE_COMMAND} "-DFILES=${OPT_LIBRARY_FILES}"
             -P ${PROJECT_SOURCE_DIR}/modules/common/tests/check_forbidden.cmake)
