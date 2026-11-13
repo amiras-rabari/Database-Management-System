@@ -413,3 +413,81 @@ TEST_CASE("rule 7: adjacent selects merge into one, in order")
     checkPlan(rewrite(input, only({7})), sel("R.a > 1 and R.b > 2", PlanNode::scan("R")));
     checkPlan(rewrite(input, allBut({7})), input);
 }
+
+// ---------------------------------------------------------------------------
+// Deep trees: plans may be up to kMaxNestingDepth (1000) levels deep
+// (DECISIONS 2026-10-18), so both passes must handle 998 levels without
+// running out of stack (both crashed here before chunk 12's fix).
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    // `levels` selects stacked over `child`: R.a > levels - 1 on top, ...,
+    // R.a > 0 right above the child.
+    PlanNode stackedSelects(int levels, PlanNode child)
+    {
+        for (int i = 0; i < levels; ++i)
+        {
+            child = sel("R.a > " + std::to_string(i), std::move(child));
+        }
+        return child;
+    }
+
+    // The number of selects stacked on top of `plan`.
+    int selectDepth(const PlanNode& plan)
+    {
+        int depth = 0;
+        for (const PlanNode* node = &plan; node->op == db::PlanOp::Select; node = &node->children[0])
+        {
+            ++depth;
+        }
+        return depth;
+    }
+} // namespace
+
+TEST_CASE("deep trees: 998 stacked selects over a scan")
+{
+    PlanNode input = stackedSelects(998, PlanNode::scan("R"));
+
+    // Rule 7 merges them into one select, the top condition first.
+    PlanNode merged = rewrite(input, db::opt::kAllRules);
+    REQUIRE((merged.op == db::PlanOp::Select));
+    std::vector<db::Condition> parts = db::splitConjuncts(*merged.condition);
+    REQUIRE(parts.size() == 998);
+    CHECK(db::toString(parts.front()) == "R.a > 997");
+    CHECK(db::toString(parts.back()) == "R.a > 0");
+    CHECK((merged.children[0] == PlanNode::scan("R")));
+
+    // Without rule 7 nothing can move: the tree comes back unchanged.
+    CHECK((rewrite(input, allBut({7})) == input));
+}
+
+TEST_CASE("deep trees: 998 nested projections that drop nothing")
+{
+    PlanNode input = PlanNode::scan("R");
+    for (int i = 0; i < 998; ++i)
+    {
+        input = proj({col("R", "a"), col("R", "b")}, std::move(input));
+    }
+
+    // Rule 7 removes every one of them; without it they all stay.
+    CHECK((rewrite(input, db::opt::kAllRules) == PlanNode::scan("R")));
+    CHECK((rewrite(input, allBut({7})) == input));
+}
+
+TEST_CASE("deep trees: 998 selects above a join, pushed down or kept above")
+{
+    PlanNode input = stackedSelects(998, joinOn("R.a = S.c", PlanNode::scan("R"), PlanNode::scan("S")));
+
+    // All rules: every select uses R only, so all go below the join (rule 2)
+    // as one select (rule 7).
+    PlanNode pushed = rewrite(input, db::opt::kAllRules);
+    REQUIRE((pushed.op == db::PlanOp::Join));
+    REQUIRE((pushed.children[0].op == db::PlanOp::Select));
+    CHECK(db::splitConjuncts(*pushed.children[0].condition).size() == 998);
+
+    // Rules 2 and 7 off: the 998 selects stay stacked above the join, and
+    // the projection pass (rule 6) walks all of them.
+    PlanNode kept = rewrite(input, allBut({2, 7}));
+    CHECK(selectDepth(kept) == 998);
+}

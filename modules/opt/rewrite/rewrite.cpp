@@ -36,12 +36,19 @@ namespace db::opt
             }
         };
 
-        /// A copy of `node`'s own data (op, condition, columns, ...) with
-        /// new children. Copying `node` itself would copy its whole subtree
-        /// only to throw the old children away.
-        PlanNode withChildren(const PlanNode& node, std::vector<PlanNode> children)
+        // Both passes walk the tree recursively, one call per tree level,
+        // and plans may be up to kMaxNestingDepth (1000) levels deep. So
+        // the recursive functions keep almost nothing on the stack: each
+        // builds its result in place in `out` (no PlanNode temporaries),
+        // and the per-node work that needs schemas or condition lists is
+        // done in a helper that has returned before the recursion goes on.
+        // A run of stacked selects is walked with a loop, not recursion.
+
+        /// Copies `node`'s own data (op, condition, columns, ...) into `out`,
+        /// without its children. Copying `node` itself would copy its whole
+        /// subtree only to throw the old children away.
+        void copyNodeData(const PlanNode& node, PlanNode& out)
         {
-            PlanNode out;
             out.op = node.op;
             out.table = node.table;
             out.condition = node.condition;
@@ -51,8 +58,6 @@ namespace db::opt
             out.sortKeys = node.sortKeys;
             out.aggregates = node.aggregates;
             out.limitCount = node.limitCount;
-            out.children = std::move(children);
-            return out;
         }
 
         /// A reference to a schema column, as a plan writes it: `e.name`, or
@@ -92,31 +97,33 @@ namespace db::opt
             });
         }
 
-        /// Puts the conditions that stop here back as selects above `core`,
+        /// Puts the conditions that stop here back as selects above `out`,
         /// the first one on top (their order in the original tree). With
         /// rule 7 on they become one select joined with `and`.
-        PlanNode withSelects(PlanNode core, std::vector<Condition> stays, const Context& ctx)
+        void addSelectsAbove(PlanNode& out, std::vector<Condition> stays, const Context& ctx)
         {
             if (stays.empty())
             {
-                return core;
+                return;
             }
             if (ctx.on(RuleId::RemoveRedundant))
             {
-                return PlanNode::select(conjoin(std::move(stays)), std::move(core));
+                PlanNode core = std::move(out);
+                out = PlanNode::select(conjoin(std::move(stays)), std::move(core));
+                return;
             }
             for (std::size_t i = stays.size(); i-- > 0;)
             {
-                core = PlanNode::select(std::move(stays[i]), std::move(core));
+                PlanNode core = std::move(out);
+                out = PlanNode::select(std::move(stays[i]), std::move(core));
             }
-            return core;
         }
 
         // ---------------------------------------------------------------
         // Pass 1: selects (rules 1-5, and rule 7's select merge)
         // ---------------------------------------------------------------
 
-        PlanNode pushSelects(const PlanNode& node, std::vector<Condition> pending, const Context& ctx);
+        void pushSelects(const PlanNode& node, std::vector<Condition> pending, const Context& ctx, PlanNode& out);
 
         /// Which inputs of a join a condition reads.
         enum class Side
@@ -154,17 +161,27 @@ namespace db::opt
             return usesRight ? Side::Right : Side::None;
         }
 
-        /// Rules 2 and 3 at a join or cross.
-        PlanNode pushIntoJoin(const PlanNode& node, std::vector<Condition> pending, const Context& ctx)
+        /// Where the conditions met at a join or cross go.
+        struct JoinSplit
         {
-            const PlanNode& left = node.children[0];
-            const PlanNode& right = node.children[1];
-            Schema leftSchema = ctx.schemaOf(left);
-            Schema rightSchema = ctx.schemaOf(right);
+            std::vector<Condition> toLeft;
+            std::vector<Condition> toRight;
+            /// The conditions that end up in the join's own condition.
+            std::vector<Condition> joinParts;
+            std::vector<Condition> stays;
+        };
+
+        /// Rules 2 and 3 at a join or cross: sorts every condition in
+        /// `pending` (and, with rule 3 on, the parts of a written join's
+        /// condition) to the left input, the right input, the join's own
+        /// condition, or "stays above".
+        JoinSplit splitAtJoin(const PlanNode& node, std::vector<Condition> pending, const Context& ctx)
+        {
+            Schema leftSchema = ctx.schemaOf(node.children[0]);
+            Schema rightSchema = ctx.schemaOf(node.children[1]);
             bool crossToJoin = ctx.on(RuleId::CrossToJoin);
 
-            // The conditions that end up in the join's own condition.
-            std::vector<Condition> joinParts;
+            JoinSplit split;
             if (node.op == PlanOp::Join)
             {
                 if (crossToJoin)
@@ -184,13 +201,10 @@ namespace db::opt
                 else
                 {
                     // Rule 3 off: a written join keeps its condition as it is.
-                    joinParts.push_back(*node.condition);
+                    split.joinParts.push_back(*node.condition);
                 }
             }
 
-            std::vector<Condition> toLeft;
-            std::vector<Condition> toRight;
-            std::vector<Condition> stays;
             for (Condition& condition : pending)
             {
                 Side side = sideOf(condition, leftSchema);
@@ -198,42 +212,58 @@ namespace db::opt
                 {
                     // Rule 2: only left columns, so filtering the left input
                     // first keeps exactly the same pairs.
-                    toLeft.push_back(std::move(condition));
+                    split.toLeft.push_back(std::move(condition));
                 }
                 else if (side == Side::Right && ctx.on(RuleId::PushSelectBelowJoin))
                 {
-                    toRight.push_back(std::move(condition));
+                    split.toRight.push_back(std::move(condition));
                 }
                 else if (side == Side::Both && crossToJoin && equiJoinKeys(condition, leftSchema, rightSchema))
                 {
                     // Rule 3: an equality between a left and a right column
                     // becomes (part of) the join condition.
-                    joinParts.push_back(std::move(condition));
+                    split.joinParts.push_back(std::move(condition));
                 }
                 else
                 {
                     // A constant, a both-sides non-equality, or a rule that
                     // is off: it stays above.
-                    stays.push_back(std::move(condition));
+                    split.stays.push_back(std::move(condition));
                 }
             }
-
-            PlanNode newLeft = pushSelects(left, std::move(toLeft), ctx);
-            PlanNode newRight = pushSelects(right, std::move(toRight), ctx);
-            PlanNode core = joinParts.empty()
-                                ? PlanNode::cross(std::move(newLeft), std::move(newRight))
-                                : PlanNode::join(conjoin(std::move(joinParts)), std::move(newLeft), std::move(newRight));
-            return withSelects(std::move(core), std::move(stays), ctx);
+            return split;
         }
 
-        /// Rule 5 at a group_by: a condition moves below only if it uses at
-        /// least one column and every column it uses is a grouping key.
+        /// Rules 2 and 3 at a join or cross, building the result in `out`.
+        void pushIntoJoin(const PlanNode& node, std::vector<Condition> pending, const Context& ctx, PlanNode& out)
+        {
+            JoinSplit split = splitAtJoin(node, std::move(pending), ctx);
+            out.children.resize(2);
+            pushSelects(node.children[0], std::move(split.toLeft), ctx, out.children[0]);
+            pushSelects(node.children[1], std::move(split.toRight), ctx, out.children[1]);
+            if (split.joinParts.empty())
+            {
+                out.op = PlanOp::Cross;
+            }
+            else
+            {
+                out.op = PlanOp::Join;
+                out.condition = conjoin(std::move(split.joinParts));
+            }
+            addSelectsAbove(out, std::move(split.stays), ctx);
+        }
+
+        /// Rule 5 at a group_by: which conditions may move below it. A
+        /// condition moves only if it uses at least one column and every
+        /// column it uses is a grouping key (returned first; the rest,
+        /// which stay above, in `stays`).
         /// - A condition on an aggregate (`n > 5`, from HAVING) never moves:
         ///   n does not exist before grouping.
         /// - A constant (`1 = 2`) never moves: with no keys, an empty input
         ///   still gives one row (count = 0), which `1 = 2` above removes
         ///   but `1 = 2` below would not.
-        PlanNode pushIntoGroupBy(const PlanNode& node, std::vector<Condition> pending, const Context& ctx)
+        std::vector<Condition> splitAtGroupBy(const PlanNode& node, std::vector<Condition> pending,
+                                              const Context& ctx, std::vector<Condition>& stays)
         {
             // The output is the keys (named as in the child), then the
             // aggregates; so output position < number of keys means "a key".
@@ -241,7 +271,6 @@ namespace db::opt
             std::size_t keyCount = node.columns.size();
 
             std::vector<Condition> down;
-            std::vector<Condition> stays;
             for (Condition& condition : pending)
             {
                 std::vector<ColumnRef> used = columnsUsed(condition);
@@ -262,59 +291,113 @@ namespace db::opt
                     stays.push_back(std::move(condition));
                 }
             }
+            return down;
+        }
 
-            PlanNode child = pushSelects(node.children[0], std::move(down), ctx);
-            std::vector<PlanNode> children;
-            children.push_back(std::move(child));
-            return withSelects(withChildren(node, std::move(children)), std::move(stays), ctx);
+        /// Rule 5 at a group_by, building the result in `out`.
+        void pushIntoGroupBy(const PlanNode& node, std::vector<Condition> pending, const Context& ctx, PlanNode& out)
+        {
+            std::vector<Condition> stays;
+            std::vector<Condition> down = splitAtGroupBy(node, std::move(pending), ctx, stays);
+            copyNodeData(node, out);
+            out.children.resize(1);
+            pushSelects(node.children[0], std::move(down), ctx, out.children[0]);
+            addSelectsAbove(out, std::move(stays), ctx);
+        }
+
+        /// `t.a > 5` above rename[t](X) becomes X's own name for that column
+        /// below it (rule 4).
+        std::vector<Condition> mapThroughRename(const PlanNode& node, std::vector<Condition> pending,
+                                                const Context& ctx)
+        {
+            Schema renamed = ctx.schemaOf(node);
+            Schema inner = ctx.schemaOf(node.children[0]);
+            for (Condition& condition : pending)
+            {
+                condition = mapByPosition(condition, renamed, inner);
+            }
+            return pending;
+        }
+
+        /// The union's conditions rewritten for its right branch (rule 4):
+        /// the union's column names are the left side's, so the right
+        /// branch gets the same condition on its own columns, by position.
+        std::vector<Condition> mapToRightBranch(const PlanNode& node, const std::vector<Condition>& pending,
+                                                const Context& ctx)
+        {
+            Schema leftSchema = ctx.schemaOf(node.children[0]);
+            Schema rightSchema = ctx.schemaOf(node.children[1]);
+            std::vector<Condition> toRight;
+            for (const Condition& condition : pending)
+            {
+                toRight.push_back(mapByPosition(condition, leftSchema, rightSchema));
+            }
+            return toRight;
+        }
+
+        /// Adds the condition of the select `node` to `pending`, after the
+        /// ones carried from above, since it was lower in the tree. Rule 1
+        /// splits it into its AND parts so each can move on its own.
+        void takeCondition(const PlanNode& node, std::vector<Condition>& pending, const Context& ctx)
+        {
+            if (ctx.on(RuleId::SplitConjunctions))
+            {
+                for (Condition& part : splitConjuncts(*node.condition))
+                {
+                    pending.push_back(std::move(part));
+                }
+            }
+            else
+            {
+                pending.push_back(*node.condition);
+            }
+        }
+
+        /// Nothing from above may pass `node`: those conditions stay above
+        /// it, and its children start with none.
+        void stopHere(const PlanNode& node, std::vector<Condition> pending, const Context& ctx, PlanNode& out)
+        {
+            copyNodeData(node, out);
+            out.children.resize(node.children.size());
+            for (std::size_t i = 0; i < node.children.size(); ++i)
+            {
+                pushSelects(node.children[i], {}, ctx, out.children[i]);
+            }
+            addSelectsAbove(out, std::move(pending), ctx);
         }
 
         /// Places the conditions in `pending` (carried down from above, in
-        /// top-to-bottom order) at or below `node`, and returns the new
-        /// subtree.
-        PlanNode pushSelects(const PlanNode& node, std::vector<Condition> pending, const Context& ctx)
+        /// top-to-bottom order) at or below `node`, and builds the new
+        /// subtree in `out` (an empty node).
+        void pushSelects(const PlanNode& node, std::vector<Condition> pending, const Context& ctx, PlanNode& out)
         {
-            switch (node.op)
+            // Every select itself goes away: its condition joins the carried
+            // ones. A run of stacked selects is taken in one loop.
+            const PlanNode* below = &node;
+            while (below->op == PlanOp::Select)
             {
-            case PlanOp::Select:
-                // The select itself goes away: its condition joins the
-                // carried ones, after them, since it was lower in the tree.
-                // Rule 1 splits it into its AND parts so each can move on
-                // its own.
-                if (ctx.on(RuleId::SplitConjunctions))
-                {
-                    for (Condition& part : splitConjuncts(*node.condition))
-                    {
-                        pending.push_back(std::move(part));
-                    }
-                }
-                else
-                {
-                    pending.push_back(*node.condition);
-                }
-                return pushSelects(node.children[0], std::move(pending), ctx);
+                takeCondition(*below, pending, ctx);
+                below = &below->children[0];
+            }
 
+            switch (below->op)
+            {
             case PlanOp::Join:
             case PlanOp::Cross:
-                return pushIntoJoin(node, std::move(pending), ctx);
+                pushIntoJoin(*below, std::move(pending), ctx, out);
+                return;
 
             case PlanOp::Rename:
                 // Rule 4, skipped over a bare scan: the §M4.3 example keeps
                 // `select e.age>60` above `rename e (scan Emp)`, and a filter
                 // costs nothing on either side of a rename.
-                if (ctx.on(RuleId::PushSelectBelowRenameUnion) && node.children[0].op != PlanOp::Scan)
+                if (ctx.on(RuleId::PushSelectBelowRenameUnion) && below->children[0].op != PlanOp::Scan)
                 {
-                    // `t.a > 5` above rename[t](X) becomes X's own name for
-                    // that column below it.
-                    Schema renamed = ctx.schemaOf(node);
-                    Schema inner = ctx.schemaOf(node.children[0]);
-                    for (Condition& condition : pending)
-                    {
-                        condition = mapByPosition(condition, renamed, inner);
-                    }
-                    std::vector<PlanNode> children;
-                    children.push_back(pushSelects(node.children[0], std::move(pending), ctx));
-                    return withChildren(node, std::move(children));
+                    std::vector<Condition> mapped = mapThroughRename(*below, std::move(pending), ctx);
+                    copyNodeData(*below, out);
+                    out.children.resize(1);
+                    pushSelects(below->children[0], std::move(mapped), ctx, out.children[0]);
+                    return;
                 }
                 break;
 
@@ -323,27 +406,21 @@ namespace db::opt
                 if (ctx.on(RuleId::PushSelectBelowRenameUnion))
                 {
                     // Rule 4: a union's rows come from both sides, so the
-                    // filter goes into BOTH branches. The union's column
-                    // names are the left side's; the right branch gets the
-                    // same condition on its own columns, by position.
-                    Schema leftSchema = ctx.schemaOf(node.children[0]);
-                    Schema rightSchema = ctx.schemaOf(node.children[1]);
-                    std::vector<Condition> toRight;
-                    for (const Condition& condition : pending)
-                    {
-                        toRight.push_back(mapByPosition(condition, leftSchema, rightSchema));
-                    }
-                    std::vector<PlanNode> children;
-                    children.push_back(pushSelects(node.children[0], std::move(pending), ctx));
-                    children.push_back(pushSelects(node.children[1], std::move(toRight), ctx));
-                    return withChildren(node, std::move(children));
+                    // filter goes into BOTH branches.
+                    std::vector<Condition> toRight = mapToRightBranch(*below, pending, ctx);
+                    copyNodeData(*below, out);
+                    out.children.resize(2);
+                    pushSelects(below->children[0], std::move(pending), ctx, out.children[0]);
+                    pushSelects(below->children[1], std::move(toRight), ctx, out.children[1]);
+                    return;
                 }
                 break;
 
             case PlanOp::GroupBy:
                 if (ctx.on(RuleId::PushSelectBelowGroupBy))
                 {
-                    return pushIntoGroupBy(node, std::move(pending), ctx);
+                    pushIntoGroupBy(*below, std::move(pending), ctx, out);
+                    return;
                 }
                 break;
 
@@ -353,15 +430,7 @@ namespace db::opt
                 // rows survive; the others are not in §M4.3's list.
                 break;
             }
-
-            // Nothing from above may pass this node: those conditions stay
-            // above it, and its children start with none.
-            std::vector<PlanNode> children;
-            for (const PlanNode& child : node.children)
-            {
-                children.push_back(pushSelects(child, {}, ctx));
-            }
-            return withSelects(withChildren(node, std::move(children)), std::move(pending), ctx);
+            stopHere(*below, std::move(pending), ctx, out);
         }
 
         // ---------------------------------------------------------------
@@ -377,21 +446,22 @@ namespace db::opt
             }
         }
 
-        PlanNode pushProjections(const PlanNode& node, const std::vector<bool>& needed, const Context& ctx);
+        void pushProjections(const PlanNode& node, const std::vector<bool>& needed, const Context& ctx,
+                             PlanNode& out);
 
         /// Rule 6 at one join input: below it, a projection that keeps only
         /// the columns marked in `needed`, in the input's own column order.
         /// Nothing is inserted when it would drop nothing, or keep nothing
         /// (a projection of zero columns is not a valid plan).
-        PlanNode narrowInput(const PlanNode& input, const std::vector<bool>& needed, const Context& ctx)
+        void narrowInput(const PlanNode& input, const std::vector<bool>& needed, const Context& ctx, PlanNode& out)
         {
-            Schema schema = ctx.schemaOf(input);
-            PlanNode result = pushProjections(input, needed, ctx);
+            pushProjections(input, needed, ctx, out);
             if (!ctx.on(RuleId::PushProjections))
             {
-                return result;
+                return;
             }
 
+            Schema schema = ctx.schemaOf(input);
             std::vector<ColumnRef> kept;
             for (std::size_t i = 0; i < schema.size(); ++i)
             {
@@ -402,77 +472,151 @@ namespace db::opt
             }
             if (kept.empty() || kept.size() == schema.size())
             {
-                return result;
+                return;
             }
-            return PlanNode::project(std::move(kept), std::move(result));
+            PlanNode core = std::move(out);
+            out = PlanNode::project(std::move(kept), std::move(core));
         }
 
-        /// Rewrites the subtree at `node`, where needed[i] says whether
-        /// output column i of `node` is still used by something above. Each
-        /// node works out which columns its children must produce: the ones
-        /// above needs, plus the ones it reads itself.
-        PlanNode pushProjections(const PlanNode& node, const std::vector<bool>& needed, const Context& ctx)
+        /// At a project: which columns of its child it reads, and (in
+        /// `dropsNothing`) whether it keeps every column of its child in the
+        /// same order.
+        std::vector<bool> projectChildNeeded(const PlanNode& node, const Context& ctx, bool& dropsNothing)
+        {
+            Schema childSchema = ctx.schemaOf(node.children[0]);
+            std::vector<std::size_t> picked;
+            projectSchema(childSchema, node.columns, &picked);
+
+            dropsNothing = picked.size() == childSchema.size();
+            for (std::size_t i = 0; dropsNothing && i < picked.size(); ++i)
+            {
+                dropsNothing = picked[i] == i;
+            }
+
+            // The projection itself is kept whole, so every column it lists
+            // must come from below.
+            std::vector<bool> childNeeded(childSchema.size(), false);
+            for (std::size_t i : picked)
+            {
+                childNeeded[i] = true;
+            }
+            return childNeeded;
+        }
+
+        /// The columns each input of a join or cross must produce.
+        struct JoinNeeds
+        {
+            std::vector<bool> left;
+            std::vector<bool> right;
+        };
+
+        JoinNeeds joinChildNeeded(const PlanNode& node, const std::vector<bool>& needed, const Context& ctx)
+        {
+            Schema leftSchema = ctx.schemaOf(node.children[0]);
+            Schema rightSchema = ctx.schemaOf(node.children[1]);
+
+            // The join's output is left columns then right columns, so the
+            // first leftSchema.size() marks belong to the left side. Its
+            // condition's columns are needed too (§M4.3 rule 6: never drop a
+            // column a predicate still references).
+            std::vector<bool> all = needed;
+            if (node.op == PlanOp::Join)
+            {
+                markUsed(all, concatSchemas(leftSchema, rightSchema), columnsUsed(*node.condition));
+            }
+            JoinNeeds needs;
+            needs.left.assign(all.begin(), all.begin() + static_cast<std::ptrdiff_t>(leftSchema.size()));
+            needs.right.assign(all.begin() + static_cast<std::ptrdiff_t>(leftSchema.size()), all.end());
+            return needs;
+        }
+
+        /// At a one-input or set-operation node: which columns of `child`
+        /// must be produced, given the node's own `needed` columns.
+        std::vector<bool> childNeededAt(const PlanNode& node, const PlanNode& child, const std::vector<bool>& needed,
+                                        const Context& ctx)
+        {
+            Schema childSchema = ctx.schemaOf(child);
+            std::vector<bool> childNeeded(childSchema.size(), false);
+
+            switch (node.op)
+            {
+            case PlanOp::Select:
+                // Same columns as the child, plus the ones it tests.
+                childNeeded = needed;
+                markUsed(childNeeded, childSchema, columnsUsed(*node.condition));
+                break;
+            case PlanOp::Rename:
+            case PlanOp::Limit:
+                // Same columns in the same positions.
+                childNeeded = needed;
+                break;
+            case PlanOp::Sort:
+                childNeeded = needed;
+                for (const SortKey& key : node.sortKeys)
+                {
+                    childNeeded[childSchema.resolve(key.column)] = true;
+                }
+                break;
+            case PlanOp::GroupBy:
+                // The keys and every aggregate's input (count(*) reads none).
+                markUsed(childNeeded, childSchema, node.columns);
+                for (const Aggregate& aggregate : node.aggregates)
+                {
+                    if (aggregate.column)
+                    {
+                        childNeeded[childSchema.resolve(*aggregate.column)] = true;
+                    }
+                }
+                break;
+            default:
+                // distinct, union, union_all, intersect, except: whether two
+                // rows are duplicates depends on every column, and a union's
+                // branches must stay aligned, so all are needed.
+                childNeeded.assign(childSchema.size(), true);
+                break;
+            }
+            return childNeeded;
+        }
+
+        /// Rewrites the subtree at `node` into `out` (an empty node), where
+        /// needed[i] says whether output column i of `node` is still used by
+        /// something above. Each node works out which columns its children
+        /// must produce: the ones above needs, plus the ones it reads itself.
+        void pushProjections(const PlanNode& node, const std::vector<bool>& needed, const Context& ctx,
+                             PlanNode& out)
         {
             switch (node.op)
             {
             case PlanOp::Scan:
-                return node;
+                out = node;
+                return;
 
-            case PlanOp::Project:
-            {
-                const PlanNode& child = node.children[0];
-                Schema childSchema = ctx.schemaOf(child);
-                std::vector<std::size_t> picked;
-                projectSchema(childSchema, node.columns, &picked);
-
+            case PlanOp::Project: {
+                bool dropsNothing = false;
+                std::vector<bool> childNeeded = projectChildNeeded(node, ctx, dropsNothing);
                 // Rule 7: a projection keeping every column in the same
                 // order drops nothing. One that reorders changes what the
                 // user sees, so it stays.
-                bool dropsNothing = picked.size() == childSchema.size();
-                for (std::size_t i = 0; dropsNothing && i < picked.size(); ++i)
-                {
-                    dropsNothing = picked[i] == i;
-                }
                 if (dropsNothing && ctx.on(RuleId::RemoveRedundant))
                 {
                     // Same columns, same positions: the child is needed exactly as this node was.
-                    return pushProjections(child, needed, ctx);
+                    pushProjections(node.children[0], needed, ctx, out);
+                    return;
                 }
-
-                // The projection itself is kept whole, so every column it
-                // lists must come from below.
-                std::vector<bool> childNeeded(childSchema.size(), false);
-                for (std::size_t i : picked)
-                {
-                    childNeeded[i] = true;
-                }
-                std::vector<PlanNode> children;
-                children.push_back(pushProjections(child, childNeeded, ctx));
-                return withChildren(node, std::move(children));
+                copyNodeData(node, out);
+                out.children.resize(1);
+                pushProjections(node.children[0], childNeeded, ctx, out.children[0]);
+                return;
             }
 
             case PlanOp::Join:
-            case PlanOp::Cross:
-            {
-                Schema leftSchema = ctx.schemaOf(node.children[0]);
-                Schema rightSchema = ctx.schemaOf(node.children[1]);
-
-                // The join's output is left columns then right columns, so
-                // the first leftSchema.size() marks belong to the left side.
-                // Its condition's columns are needed too (§M4.3 rule 6:
-                // never drop a column a predicate still references).
-                std::vector<bool> all = needed;
-                if (node.op == PlanOp::Join)
-                {
-                    markUsed(all, concatSchemas(leftSchema, rightSchema), columnsUsed(*node.condition));
-                }
-                std::vector<bool> leftNeeded(all.begin(), all.begin() + static_cast<std::ptrdiff_t>(leftSchema.size()));
-                std::vector<bool> rightNeeded(all.begin() + static_cast<std::ptrdiff_t>(leftSchema.size()), all.end());
-
-                std::vector<PlanNode> children;
-                children.push_back(narrowInput(node.children[0], leftNeeded, ctx));
-                children.push_back(narrowInput(node.children[1], rightNeeded, ctx));
-                return withChildren(node, std::move(children));
+            case PlanOp::Cross: {
+                JoinNeeds needs = joinChildNeeded(node, needed, ctx);
+                copyNodeData(node, out);
+                out.children.resize(2);
+                narrowInput(node.children[0], needs.left, ctx, out.children[0]);
+                narrowInput(node.children[1], needs.right, ctx, out.children[1]);
+                return;
             }
 
             default:
@@ -481,52 +625,13 @@ namespace db::opt
 
             // One-input and set-operation nodes: work out what each child
             // must produce, then recurse.
-            std::vector<PlanNode> children;
-            for (const PlanNode& child : node.children)
+            copyNodeData(node, out);
+            out.children.resize(node.children.size());
+            for (std::size_t i = 0; i < node.children.size(); ++i)
             {
-                Schema childSchema = ctx.schemaOf(child);
-                std::vector<bool> childNeeded(childSchema.size(), false);
-
-                switch (node.op)
-                {
-                case PlanOp::Select:
-                    // Same columns as the child, plus the ones it tests.
-                    childNeeded = needed;
-                    markUsed(childNeeded, childSchema, columnsUsed(*node.condition));
-                    break;
-                case PlanOp::Rename:
-                case PlanOp::Limit:
-                    // Same columns in the same positions.
-                    childNeeded = needed;
-                    break;
-                case PlanOp::Sort:
-                    childNeeded = needed;
-                    for (const SortKey& key : node.sortKeys)
-                    {
-                        childNeeded[childSchema.resolve(key.column)] = true;
-                    }
-                    break;
-                case PlanOp::GroupBy:
-                    // The keys and every aggregate's input (count(*) reads none).
-                    markUsed(childNeeded, childSchema, node.columns);
-                    for (const Aggregate& aggregate : node.aggregates)
-                    {
-                        if (aggregate.column)
-                        {
-                            childNeeded[childSchema.resolve(*aggregate.column)] = true;
-                        }
-                    }
-                    break;
-                default:
-                    // distinct, union, union_all, intersect, except: whether
-                    // two rows are duplicates depends on every column, and a
-                    // union's branches must stay aligned, so all are needed.
-                    childNeeded.assign(childSchema.size(), true);
-                    break;
-                }
-                children.push_back(pushProjections(child, childNeeded, ctx));
+                std::vector<bool> childNeeded = childNeededAt(node, node.children[i], needed, ctx);
+                pushProjections(node.children[i], childNeeded, ctx, out.children[i]);
             }
-            return withChildren(node, std::move(children));
         }
     } // namespace
 
@@ -534,13 +639,16 @@ namespace db::opt
     {
         Context ctx{rules, tableSchema};
 
-        PlanNode result = pushSelects(plan, {}, ctx);
+        PlanNode result;
+        pushSelects(plan, {}, ctx, result);
 
         if (ctx.on(RuleId::PushProjections) || ctx.on(RuleId::RemoveRedundant))
         {
             // The user sees every column of the root, so all are needed.
             std::vector<bool> all(ctx.schemaOf(result).size(), true);
-            result = pushProjections(result, all, ctx);
+            PlanNode narrowed;
+            pushProjections(result, all, ctx, narrowed);
+            result = std::move(narrowed);
         }
         return result;
     }

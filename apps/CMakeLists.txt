@@ -28,6 +28,15 @@ target_link_libraries(sql_cli_support PUBLIC db_sql db_storage)
 add_executable(sql sql_main.cpp)
 target_link_libraries(sql PRIVATE sql_cli_support)
 
+# opt CLI (opt chunk 14): `opt analyze`, `plan`, `explain`, `dp-table`. The
+# tool reads the logical plan file and the catalog; db_opt only computes.
+add_library(opt_cli_support STATIC opt_cli.cpp)
+target_include_directories(opt_cli_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(opt_cli_support PUBLIC db_opt nlohmann_json)
+
+add_executable(opt opt_main.cpp)
+target_link_libraries(opt PRIVATE opt_cli_support)
+
 # --- Tests ------------------------------------------------------------------
 add_executable(storage_cli_tests
     tests/test_main.cpp
@@ -55,3 +64,14 @@ target_link_libraries(sql_cli_tests PRIVATE sql_cli_support doctest)
 
 add_test(NAME sql_cli_tests COMMAND sql_cli_tests)
 set_tests_properties(sql_cli_tests PROPERTIES TIMEOUT 60)
+
+# The opt tests also run exec's CLI: a plan from `opt plan` must run in exec
+# unedited (§M4.6).
+add_executable(opt_cli_tests
+    tests/test_main.cpp
+    tests/opt_cli_tests.cpp
+)
+target_link_libraries(opt_cli_tests PRIVATE opt_cli_support exec_cli_support doctest)
+
+add_test(NAME opt_cli_tests COMMAND opt_cli_tests)
+set_tests_properties(opt_cli_tests PROPERTIES TIMEOUT 60)
