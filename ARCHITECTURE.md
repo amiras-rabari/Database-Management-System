@@ -162,7 +162,7 @@ flowchart TB
         S14["<big><b>14</b></big><br/>exec → shell<br/>next row"]
         S15(["<big><b>15</b></big><br/>shell → User<br/>row printed"])
         S16["<big><b>16</b></big><br/>shell → exec<br/>totals(), trace()"]
-        S17(["<big><b>17</b></big><br/>shell → User<br/>&quot;N rows&quot;<br/>(or the --json<br/>numbers)"])
+        S17(["<big><b>17</b></big><br/>shell → User<br/>#quot;N rows#quot;<br/>(or the --json<br/>numbers)"])
         S11 --> S12 --> S13 --> S14 --> S15
         S15 -. "more rows:<br/>open / next / close" .-> S13
         S15 -- "no more rows" --> S16 --> S17
