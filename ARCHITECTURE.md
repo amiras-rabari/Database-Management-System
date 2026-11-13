@@ -133,37 +133,36 @@ Each module at a glance (colours match the diagrams; bottom to top, like 1.2):
 A SELECT passes through three phases: sql **compiles** it, opt **plans** it, and exec **runs** it on top of storage. Each box below is one call, numbered in order and coloured by the module that receives it (🟪 shell · 🟦 sql · 🟨 opt · 🟩 exec · 🟥 storage · ⬜ User). Follow each row from left to right, then step down to the next phase.
 
 ```mermaid
-%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 24, "rankSpacing": 38, "padding": 10}}}%%
 flowchart TB
     subgraph R1["① COMPILE · sql turns the text into a logical plan"]
         direction LR
-        S1(["<b style='font-size:25px'>1</b><br/>User → shell<br/>SELECT …"])
-        S2["<b style='font-size:25px'>2</b><br/>shell → sql<br/>tokenizeSql(piece)"]
-        S3["<b style='font-size:25px'>3</b><br/>sql → shell<br/>tokens, one statement<br/>per semicolon"]
-        S4["<b style='font-size:25px'>4</b><br/>shell → sql<br/>compileSql(text,<br/>TableLookup)"]
-        S5["<b style='font-size:25px'>5</b><br/>sql → storage<br/>Catalog::getTable<br/>(schema)"]
-        S6["<b style='font-size:25px'>6</b><br/>sql → shell<br/>logical PlanNode"]
+        S1(["<big><b>1</b></big><br/>User → shell<br/>SELECT …"])
+        S2["<big><b>2</b></big><br/>shell → sql<br/>tokenizeSql(piece)"]
+        S3["<big><b>3</b></big><br/>sql → shell<br/>tokens, one statement<br/>per semicolon"]
+        S4["<big><b>4</b></big><br/>shell → sql<br/>compileSql(text,<br/>TableLookup)"]
+        S5["<big><b>5</b></big><br/>sql → storage<br/>Catalog::getTable<br/>(schema)"]
+        S6["<big><b>6</b></big><br/>sql → shell<br/>logical PlanNode"]
         S1 --> S2 --> S3 --> S4 --> S5 --> S6
     end
 
     subgraph R2["② PLAN · opt turns it into a physical plan with estimates"]
         direction LR
-        S7["<b style='font-size:25px'>7</b><br/>shell → opt<br/>optimize(logical,<br/>StatsProvider,<br/>{frames = B})"]
-        S8["<b style='font-size:25px'>8</b><br/>opt → storage<br/>Catalog::getTable<br/>(rows, pages, statistics)"]
-        S9["<b style='font-size:25px'>9</b><br/>opt → exec<br/>divideFrames<br/>(frame shares for costs)"]
-        S10["<b style='font-size:25px'>10</b><br/>opt → shell<br/>OptimizedPlan<br/>{physical, estimates}"]
+        S7["<big><b>7</b></big><br/>shell → opt<br/>optimize(logical,<br/>StatsProvider,<br/>{frames = B})"]
+        S8["<big><b>8</b></big><br/>opt → storage<br/>Catalog::getTable<br/>(rows, pages, statistics)"]
+        S9["<big><b>9</b></big><br/>opt → exec<br/>divideFrames<br/>(frame shares for costs)"]
+        S10["<big><b>10</b></big><br/>opt → shell<br/>OptimizedPlan<br/>{physical, estimates}"]
         S7 --> S8 --> S9 --> S10
     end
 
     subgraph R3["③ RUN · exec runs it inside B frames, rows come out"]
         direction LR
-        S11["<b style='font-size:25px'>11</b><br/>shell → storage<br/>resetPool(B): cold pool,<br/>counters at 0"]
-        S12["<b style='font-size:25px'>12</b><br/>shell → exec<br/>buildExecutablePlan(<br/>physical, ExecContext)"]
-        S13["<b style='font-size:25px'>13</b><br/>exec → storage<br/>fetch pages<br/>(≤ B frames)"]
-        S14["<b style='font-size:25px'>14</b><br/>exec → shell<br/>next row"]
-        S15(["<b style='font-size:25px'>15</b><br/>shell → User<br/>row printed"])
-        S16["<b style='font-size:25px'>16</b><br/>shell → exec<br/>totals(), trace()"]
-        S17(["<b style='font-size:25px'>17</b><br/>shell → User<br/>&quot;N rows&quot;<br/>(or the --json<br/>numbers)"])
+        S11["<big><b>11</b></big><br/>shell → storage<br/>resetPool(B): cold pool,<br/>counters at 0"]
+        S12["<big><b>12</b></big><br/>shell → exec<br/>buildExecutablePlan(<br/>physical, ExecContext)"]
+        S13["<big><b>13</b></big><br/>exec → storage<br/>fetch pages<br/>(≤ B frames)"]
+        S14["<big><b>14</b></big><br/>exec → shell<br/>next row"]
+        S15(["<big><b>15</b></big><br/>shell → User<br/>row printed"])
+        S16["<big><b>16</b></big><br/>shell → exec<br/>totals(), trace()"]
+        S17(["<big><b>17</b></big><br/>shell → User<br/>&quot;N rows&quot;<br/>(or the --json<br/>numbers)"])
         S11 --> S12 --> S13 --> S14 --> S15
         S15 -. "more rows:<br/>open / next / close" .-> S13
         S15 -- "no more rows" --> S16 --> S17
