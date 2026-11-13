@@ -42,8 +42,12 @@ namespace db::opt
     std::int64_t costSortMergeJoin(std::int64_t m, std::int64_t n, std::int64_t b);
 
     /// §M4.4 grace hash join: 3 x (M + N): read both inputs, write them as
-    /// partitions, read the partitions back. Exec measures a little more
-    /// (partly full last pages, overflow; REPORT_M2.md); the report explains it.
+    /// partitions, read the partitions back. Exec's measured I/O is the true
+    /// cost, and it can be much higher: exec makes P = B - 1 partitions and
+    /// each one ends in a partly full page (M = 20, N = 10 at B = 256: 1052
+    /// measured against 90), and a partition larger than its table is joined
+    /// by block nested loop. The formula is kept on purpose (decided
+    /// 2026-11-13, option (b)); REPORT_M4.md and DESIGN_M4.md say why.
     std::int64_t costHashJoin(std::int64_t m, std::int64_t n);
 
     /// Hash-mode distinct or group_by (§M4.4 "the hash partitioning it
