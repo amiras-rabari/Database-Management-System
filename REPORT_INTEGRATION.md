@@ -1,6 +1,6 @@
 # REPORT — Integration
 
-We ran 25 queries through the whole system (the `shell`: sql → opt → exec → storage) and recorded four numbers for each one, as the integration spec asks:
+I ran 25 queries through the whole system (the `shell`: sql → opt → exec → storage) and recorded four numbers for each one, as the integration spec asks:
 
 | Number | Meaning |
 |---|---|
@@ -40,7 +40,7 @@ python bench/report_integration.py run bench/out/integration/workload --frames 4
 
 ### Data
 
-Our own dataset, generated with a fixed seed (3005), so every run produces the same files.
+My own dataset, generated with a fixed seed (3005), so every run produces the same files.
 
 | Table | Rows | Notes |
 |---|---:|---|
@@ -236,7 +236,7 @@ $$
 n = 1{,}618
 $$
 
-In our data the zip decides the city (zips 0–49 are exactly City00), so the second condition removes nothing. The true fraction is $\tfrac{1}{20}$, not $\tfrac{1}{400}$. This is the known limit of the independence assumption, and why we built this pair (`REPORT_M4.md`).
+In my data the zip decides the city (zips 0–49 are exactly City00), so the second condition removes nothing. The true fraction is $\tfrac{1}{20}$, not $\tfrac{1}{400}$. This is the known limit of the independence assumption, and why I built this pair (`REPORT_M4.md`).
 
 ### q19 and q22 — set operations (q-error 9 and 7)
 
@@ -278,21 +278,46 @@ Every estimate is rounded up to at least one row, so an empty result always show
 
 ## 4. Correctness against PostgreSQL
 
-The same data and the same 25 query files are run on PostgreSQL on our OpenStack instance, and the rows are compared with ours.
+I ran the same data and the same 25 query files on **PostgreSQL 18.4** (on my local machine) and compared the rows with the shell's output.
 
 ```bash
 python bench/report_integration.py compare bench/out/integration/workload
 ```
 
-- The PostgreSQL database uses the **C locale**, so text sorts byte by byte, the same as ours.
+- The PostgreSQL database uses the **C locale**, so text sorts byte by byte, the same as the shell.
 - Each query file runs unchanged.
 
 Only printing differences are evened out before comparing:
 
 | Difference | How it is handled |
 |---|---|
-| Our header line and `N rows` line | dropped; ` \| ` becomes `\|` |
+| The shell's header line and `N rows` line | dropped; ` \| ` becomes `\|` |
 | Row order without ORDER BY | both sides sorted (a result is a bag, with no fixed order) |
-| AVG decimals | both rounded to 4 places, as we print them |
+| AVG decimals | both rounded to 4 places, as the shell prints them |
 
-**Result:** _pending, to be added after the run on OpenStack._
+PostgreSQL loaded exactly the same tables: 50 / 10,000 / 500 / 30,000 / 32,000 / 96,000 / 4 / 3 rows.
+
+### Result
+
+$$
+\textbf{25 of 25 queries return exactly the same rows as PostgreSQL.}
+$$
+
+| Group | Queries | Result |
+|---|---|---|
+| Selections | q01–q05, q10 | ✅ all match |
+| Joins | q06–q09, q11–q13, q24 | ✅ all match |
+| Grouping, sorting, DISTINCT | q14–q17, q20, q25 | ✅ all match (AVG to 4 places, q16's top 10 in order) |
+| Set operations | q18, q19, q21, q22 | ✅ all match |
+| Empty result | q23 | ✅ match |
+
+### Can the check fail?
+
+To be sure a "pass" means something, I changed **one row on the PostgreSQL side only** (employee 0 moved to department 7, age 99) and ran the check again:
+
+| | Queries | Result |
+|---|---|---|
+| Read employee 0 (department 7 or an age filter) | q01–q04, q12–q15, q18, q20, q21, q25 | ❌ 12 fail |
+| Do not read it | the other 13 | ✅ still match |
+
+Four of the failures (q14, q15, q20, q25) had the same number of rows but different values, so the check compares values, not just row counts. With the row put back, all 25 match again.

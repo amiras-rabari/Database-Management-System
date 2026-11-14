@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-One program, a single binary with a prompt: SQL goes in and rows come out. This file covers the three parts the integration spec asks for: **(1)** the whole system, **(2)** the interface between each pair of modules, **(3)** what we would do differently. It ends with the readings. Every function and type named here is in that module's `INTERFACE.md`.
+One program, a single binary with a prompt: SQL goes in and rows come out. This file covers the three parts the integration spec asks for: **(1)** the whole system, **(2)** the interface between each pair of modules, **(3)** what I would do differently. It ends with the readings. Every function and type named here is in that module's `INTERFACE.md`.
 
 ---
 
@@ -264,13 +264,13 @@ The rule each pair relies on:
 
 ---
 
-## 3. What we would do differently
+## 3. What I would do differently
 
 Drawn from recorded evidence: reversed rows in `DECISIONS.md`, the "where AI help was wrong" tables in each module's `STATUS.md`, opt's measurements and the shell rehearsal.
 
 | # | Do differently | Evidence |
 |---|---|---|
-| 1 | **Design the memory split and the cost model together.** Agree on the frame rule first, and let the DP cost joins with the frames exec really gives them. | Exec divides B (`divideFrames`), but the spec's DP table (§M4.5) costs every join as if it had all of B. We kept both: the DP matches the spec, measured I/O is higher. In one case the DP picked a plan with **4,324** page I/Os where another needed **1,823** (opt `STATUS.md`, 2026-11-13). |
+| 1 | **Design the memory split and the cost model together.** Agree on the frame rule first, and let the DP cost joins with the frames exec really gives them. | Exec divides B (`divideFrames`), but the spec's DP table (§M4.5) costs every join as if it had all of B. I kept both: the DP matches the spec, measured I/O is higher. In one case the DP picked a plan with **4,324** page I/Os where another needed **1,823** (opt `STATUS.md`, 2026-11-13). |
 | 2 | **Read the spec's worked examples before any chunk guide.** | Reversals came from guide extras the spec never asked for: a table-name case check that broke the SQL spec ("`Emp` and `emp` are different tables"; added 10-27, removed 10-30); an "ndv cap" in opt that made estimates worse; questions already answered by sql examples 5.4/5.6 and exec §M2.3. The lean-code rule ("the spec decides") came only after M1. |
 | 3 | **Plan for 1000-level trees in every recursive pass from day one.** Build nodes in place, keep frames small, and write a deep test with each recursive function. | The same stack overflow happened **four times**: common's RA parser, sql's parser, opt's rewriter, opt's physical conversion. Each was found late, by a deep-nesting test. |
 | 4 | **Fix the page-access pattern of a scan early.** | The heap scan re-read its directory page before every data page, so a 200-page scan cost **333** reads at B = 4. It was changed to read each directory page once only in exec chunk 07 (DECISIONS 2026-11-07); the tuple-buffer page count was revised the same day. Both changed numbers that earlier tests had fixed. |
@@ -282,9 +282,9 @@ Drawn from recorded evidence: reversed rows in `DECISIONS.md`, the "where AI hel
 ## 4. Readings
 
 **1. Hellerstein, Stonebraker and Hamilton, *Architecture of a Database System* (2007).**
-- *One stage per module.* The paper splits a query processor into parse, rewrite, optimize and execute, with the access methods and the buffer manager underneath. Our modules follow the same cut: sql parses, opt rewrites and optimizes, exec executes, storage holds the pages. Each stage hands the next one a plan and never reaches into another stage's data.
+- *One stage per module.* The paper splits a query processor into parse, rewrite, optimize and execute, with the access methods and the buffer manager underneath. My modules follow the same cut: sql parses, opt rewrites and optimizes, exec executes, storage holds the pages. Each stage hands the next one a plan and never reaches into another stage's data.
 - *The DBMS manages its own memory.* The paper argues that the database, not the operating system, should decide what stays in memory. That is why the shell keeps a single buffer pool for the whole session and every operator's memory is counted against B.
 
-**2. Andy Pavlo, CMU 15-445/645 *Intro to Database Systems* (Fall 2024).** Each module's exact rules come from its spec; the lectures gave us the mental model for the whole system and a way to approach each part (the lectures per module are in `DESIGN_M1.md` to `DESIGN_M4.md`).
-- *Build bottom-up, one layer at a time.* The course builds a database from the disk page upward, each layer using only the one below it. We followed the same order (common → storage → exec → sql → opt → shell), so every module could be tested on its own before the next one used it.
+**2. Andy Pavlo, CMU 15-445/645 *Intro to Database Systems* (Fall 2024).** Each module's exact rules come from its spec; the lectures gave me the mental model for the whole system and a way to approach each part (the lectures per module are in `DESIGN_M1.md` to `DESIGN_M4.md`).
+- *Build bottom-up, one layer at a time.* The course builds a database from the disk page upward, each layer using only the one below it. I followed the same order (common → storage → exec → sql → opt → shell), so every module could be tested on its own before the next one used it.
 - *Judge everything by page I/O.* The course measures storage, operators and the optimizer in the same unit: pages read and written. That shared unit is what lets the shell put opt's estimate next to exec's real count in `EXPLAIN ANALYZE`, and why the pool is emptied before each query, so the two numbers can be compared fairly.
