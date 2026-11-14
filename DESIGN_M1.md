@@ -220,14 +220,14 @@ One line at a time (never the whole file), split by a hand-written state machine
 
 ## 11. Readings cited
 
-Both are from Andy Pavlo's CMU 15-445/645 *Intro to Database Systems*, Fall 2024 (chosen over a later term for its audio and structure).
+Both are from Andy Pavlo's CMU 15-445/645 *Intro to Database Systems*, Fall 2024 (chosen over a later term for its audio and structure). The exact byte layouts, counting rules and formats come from the spec; the lectures gave us the mental model behind them: why a storage layer is built this way, and how to think about each piece before writing it.
 
 **1. Lecture 03, "Database Storage: Files & Pages".**
-- *Slotted pages.* The lecture's slotted page has a slot array that grows from the front and tuples that grow from the back, and a record id of (page, slot). That is our data page (§3). Because a rid names a slot and not a byte offset, we never renumber or reuse slots, and a delete only marks its slot dead (§3 Rules, §6).
-- *Heap file with a page directory.* The lecture compares a linked list of pages with a page directory that tracks each page's free space. We chose the directory (§4): an insert finds a page with room by reading directory pages only (§5), and the directory gives the scan its order.
-- *Tuple layout.* The lecture's tuple has a header with a null bitmap. Our records have no header at all (§2), because the project has no NULLs and the schema already gives each field's type.
+- *Thinking of a page as a slot array.* The lecture's picture of a slotted page (slots growing from the front, tuples from the back, a record id of page + slot) made the spec's data page (§3) easy to reason about. It also made one rule obvious: because a rid names a slot and not a byte offset, we never renumber or reuse slots, and a delete only marks its slot dead (§3 Rules, §6).
+- *How to find free space.* The lecture's comparison of a linked list of pages with a page directory gave us the right question to ask: how many pages must an insert touch to find room? That is why we chose the directory (§4): an insert reads directory pages only (§5), and the directory also gives the scan its order.
+- *What a tuple header is for.* The lecture's tuple carries a header with a null bitmap. Knowing what that header is for told us we could drop it: the project has no NULLs and the schema already gives each field's type, so our records have no header at all (§2).
 
 **2. Lecture 06, "Memory & Disk I/O Management".**
-- *The DBMS manages its own memory.* The lecture argues the DBMS, not the OS (no mmap), should decide which pages stay in memory. That is why our pool is the only place page bytes live, so "at most B pages" and every counter are under our control and deterministic (§7).
-- *Frames, pin counts and dirty flags.* A pinned frame is never a victim, and a dirty page is written back when it is evicted or flushed. These are our pool's rules and counting table (§7).
-- *LRU, CLOCK and sequential flooding.* The lecture shows that repeated sequential scans of a file larger than the pool flood LRU: every access is a miss. We implement both LRU (logical-clock stamps) and CLOCK (reference bits, the spec's sweep). Sequential flooding is the explanation for trace 3 in `REPORT_M1.md`.
+- *The DBMS owns its memory.* The lecture's argument that the database, not the operating system (no mmap), should decide which pages stay in memory is the mindset behind our pool: it is the only place page bytes live, so "at most B pages" and every counter stay under our control and deterministic (§7).
+- *Pins and dirty pages as the pool's contract.* Thinking of a pin as "do not take this frame" and a dirty flag as "write this back first" turned the spec's counting rules into a short table we could test line by line (§7).
+- *Why replacement policies fail.* The lecture's sequential-flooding example (repeated scans of a file larger than the pool make every LRU access a miss) gave us the intuition to read our own numbers: it is the explanation for trace 3 in `REPORT_M1.md`, where LRU and CLOCK (both built to the spec, §7) behave so differently.

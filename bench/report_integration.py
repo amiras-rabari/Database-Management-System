@@ -1,6 +1,6 @@
-"""The hidden-workload report and the PostgreSQL check (integration SPEC).
+"""The integration workload report and the PostgreSQL check (integration SPEC).
 
-The grader publishes a dataset and 25 queries 72 hours before the demo. For
+The workload is 25 queries over our own dataset. For
 each query we report the result row count, the page I/O, the wall time, and
 the estimated against actual rows at the root. Correctness is checked by
 running the same queries on PostgreSQL over the same data.
@@ -12,8 +12,8 @@ A workload is a folder holding:
     queries/qNN.sql  one query per file
 
 Usage (from the repo root, after building):
-    python bench/report_integration.py rehearse [--bin build/apps]
-        writes our rehearsal workload to bench/out/integration/rehearsal/
+    python bench/report_integration.py generate [--bin build/apps]
+        writes our workload to bench/out/integration/workload/
     python bench/report_integration.py run FOLDER [--frames 4] [--bin build/apps]
         (our machine) loads FOLDER with the `shell`, runs every query twice in
         one shell with --json (the counters must be identical, §0.2), saves each query's
@@ -40,7 +40,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import report_m4  # the opt rehearsal dataset (make_tables, QUERIES)
+import report_m4  # the opt dataset and queries (make_tables, QUERIES)
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "bench" / "out" / "integration"
@@ -48,11 +48,11 @@ DB = OUT / "db"
 PG_DATABASE = "comp3005_check"
 
 
-# ---------------------------------------------------------------- rehearsal
+# ---------------------------------------------------------------- the workload
 
 # Opt's twenty queries already cover selections, 2- to 4-way joins, GROUP BY
 # with HAVING, ORDER BY with LIMIT, DISTINCT, UNION, EXCEPT and a derived
-# table. These five add what is missing, up to the hidden workload's 25.
+# table. These five add what is missing, for 25 queries in all.
 EXTRA_QUERIES = {
     "q21": "SELECT e.eid FROM Emp e WHERE e.age > 68 UNION ALL SELECT w.eid FROM Works w WHERE w.hours = 40",
     "q22": "SELECT e.eid FROM Emp e WHERE e.did = 3 INTERSECT SELECT w.eid FROM Works w WHERE w.hours > 38",
@@ -68,10 +68,10 @@ EXTRA_TABLES = {
 }
 
 
-def rehearse():
-    """Writes the rehearsal workload: opt's tables and queries (seed 3005) plus
-    the five above, in the same layout the hidden workload will be given."""
-    folder = OUT / "rehearsal"
+def generate():
+    """Writes the workload: opt's tables and queries (seed 3005) plus the five
+    above, as a folder with setup.sql and queries/qNN.sql."""
+    folder = OUT / "workload"
     shutil.rmtree(folder, ignore_errors=True)
     (folder / "data").mkdir(parents=True)
     (folder / "queries").mkdir()
@@ -89,7 +89,7 @@ def rehearse():
     queries.update(EXTRA_QUERIES)
     for query, sql in queries.items():
         (folder / "queries" / f"{query}.sql").write_text(sql + ";\n", encoding="utf-8")
-    print(f"rehearsal workload written to {folder}")
+    print(f"workload written to {folder}")
 
 
 # ---------------------------------------------------------------- run (ours)
@@ -108,7 +108,7 @@ def run(folder, frames, bin_dir):
     if setup.returncode != 0:
         sys.exit(f"setup.sql failed:\n{setup.stderr}")
 
-    lines = [f"Hidden workload at B = {frames} (cold buffer pool before every query).", "",
+    lines = [f"Integration workload at B = {frames} (cold buffer pool before every query).", "",
              "| Query | Rows | Page I/O (reads + writes) | Wall time (ms) | Estimated root rows | Actual root rows |",
              "|---|---:|---:|---:|---:|---:|"]
     for path in sorted((folder / "queries").glob("*.sql")):
@@ -221,15 +221,15 @@ def compare(folder, ours, program):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["rehearse", "run", "compare"])
+    parser.add_argument("command", choices=["generate", "run", "compare"])
     parser.add_argument("folder", nargs="?", type=Path)
     parser.add_argument("--frames", type=int, default=4)
     parser.add_argument("--bin", type=Path, default=ROOT / "build" / "apps")
     parser.add_argument("--ours", type=Path, default=OUT / "ours")
     parser.add_argument("--psql", default="psql")
     args = parser.parse_args()
-    if args.command == "rehearse":
-        rehearse()
+    if args.command == "generate":
+        generate()
     elif args.folder is None:
         parser.error(f"{args.command} needs the workload FOLDER")
     elif args.command == "run":

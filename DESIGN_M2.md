@@ -247,7 +247,10 @@ The spec's example (R.b = [1, 2, 2, 3], S.b = [2, 2, 4]) gives 4 rows; advancing
 
 ## 11. Readings
 
-Andy Pavlo's CMU 15-445/645 *Intro to Database Systems*, Fall 2024 ( is base for all concepts used here)
+- **Andy Pavlo, CMU 15-445/645 *Intro to Database Systems*, Fall 2024: #13 Query Execution I, #11 Sorting & Aggregations, #12 Join Algorithms.** The operators' exact rules and formulas come from the spec; these lectures gave us the way to think about the whole module before building it.
+  - *Every operator is an iterator.* Seeing a plan as a tree of operators that each hand up one tuple at a time made the shape of the code clear from the start: write one small operator at a time, and test it alone.
+  - *Count pages, not CPU.* The lectures judge every sort and join by how many pages it reads and writes with a given number of buffers. That is the lens we used for every design choice in this module, and why each operator's counters can be checked against a formula.
+  - *Memory decides the algorithm.* Seeing external sort and the three joins as different answers to "the data does not fit in memory" is what led us to treat B as a budget split across the whole plan (§3), not a setting of one operator.
 
 - **Graefe, *Volcano — An Extensible and Parallel Query Evaluation System*, IEEE TKDE 1994.**
   - The open/next/close iterator protocol is how every operator here is written, including that a parent drives its children and never reaches past them.
