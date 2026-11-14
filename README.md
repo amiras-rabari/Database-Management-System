@@ -108,17 +108,60 @@ Design decisions are logged one per line in [`DECISIONS.md`](DECISIONS.md). Per-
 
 ## Build and test
 
-Needs CMake 3.20 or newer, Ninja, and a C++20 compiler (GCC 11 or newer). From the repository root:
+Needs CMake 3.20 or newer and a C++20 compiler (GCC 11 or newer). Everything runs from a terminal; an IDE is optional.
+
+- **Linux:** follow the steps below.
+- **Windows:** use either WSL (run `wsl --install` in an administrator PowerShell, restart, open Ubuntu, then follow the Linux steps) or CLion, which comes with its own CMake and compiler (see the end of this section).
+
+### Get the code
 
 ```
+git clone https://github.com/amiras-rabari/Database-Management-System.git
+cd Database-Management-System
+```
+
+### Linux (or WSL)
+
+```
+sudo apt install build-essential cmake        # g++, make, cmake (once)
+cmake -S . -B build                           # configure: writes build/Makefile
+cmake --build build -j                        # compile, archive and link everything
+ctest --test-dir build                        # run all test suites (14)
+cd demo && ../build/apps/shell --db demo_db --frames 4 --file demo.sql
+```
+
+The demo creates `demo/demo_db`. To run it again, delete that folder first (`rm -rf demo_db`), because `CREATE TABLE` fails when the table already exists.
+
+**Interactive shell.** Leave out `--file` to get a `db> ` prompt on the same database. Type SQL; a statement can span several lines and ends at `;`. Press Ctrl+D to quit.
+
+```
+../build/apps/shell --db demo_db --frames 4
+db> SELECT e.name, e.salary FROM Emp e ORDER BY e.salary DESC LIMIT 3;
+```
+
+The other tools work the same way. From the repository root, after the demo has run:
+
+```
+./build/apps/storage scan --db demo/demo_db --table Emp
+./build/apps/opt analyze --db demo/demo_db --table Emp --frames 4
+```
+
+### Windows with CLion
+
+**In the IDE.** Open the cloned folder (or use *File → New → Project from Version Control* with the URL above). CLion configures the project by itself. The hammer button builds; the Run button builds if needed and runs the selected program. Each executable (`shell`, `storage`, …) gets its own run configuration. For the demo, pick `shell` and set **Program arguments** to `--db demo_db --frames 4 --file demo.sql` and **Working directory** to the `demo` folder. To run the tests, run the *All CTest* configuration.
+
+**From PowerShell instead.** Put CLion's bundled tools on `PATH` (once per window; `<CLion>` is CLion's install folder, for example `C:\Users\<you>\AppData\Local\Programs\CLion`), then use the same commands as on Linux:
+
+```
+$C = "<CLion>\bin"
+$env:Path = "$C\cmake\win\x64\bin;$C\ninja\win\x64;$C\mingw\bin;$env:Path"
 cmake -S . -B build -G Ninja
 cmake --build build
 ctest --test-dir build
+cd demo; ..\build\apps\shell.exe --db demo_db --frames 4 --file demo.sql
 ```
 
-- **CLion:** open the repository folder; CLion reads the same `CMakeLists.txt` and uses its bundled CMake, Ninja and MinGW.
-- **Windows shell:** put CLion's bundled tools on `PATH` first (`<CLion>/bin/cmake/win/x64/bin`, `<CLion>/bin/ninja/win/x64`, `<CLion>/bin/mingw/bin`).
-- **Linux / WSL:** `sudo apt install cmake ninja-build g++`.
+For the interactive shell, leave out `--file` (`..\build\apps\shell.exe --db demo_db --frames 4`); press Ctrl+Z then Enter to quit. In the IDE, do the same by removing `--file demo.sql` from the program arguments and typing in the Run window.
 
 Builds use `-Wall -Wextra -Wpedantic` with zero warnings as the standard. Tests are written first from the specification's worked examples, so a passing test means the output matches the published numbers. Each new test is proven to fail on purpose before it counts.
 
